@@ -56,10 +56,10 @@ final class LoggerEngine {
     @ObservationIgnored private var poller: Poller?
     @ObservationIgnored private var sessionTask: Task<Void, Never>?
     @ObservationIgnored private var recorder: TripRecorder?
-    @ObservationIgnored private let slot = RecorderSlot()
+    private let slot = RecorderSlot()
     @ObservationIgnored private var derived = DerivedSignals()
-    @ObservationIgnored private let location = LocationRecorder()
-    @ObservationIgnored private let activity = CoolantActivityController()
+    private let location = LocationRecorder()
+    private let activity = CoolantActivityController()
     @ObservationIgnored private var tripEndTask: Task<Void, Never>?
     @ObservationIgnored private var lastActivityPush = Date.distantPast
 
@@ -310,7 +310,7 @@ final class LoggerEngine {
             try? TripFiles.writeMeta(trip.meta, to: dir)
             await MainActor.run { [weak self] in self?.trips.refresh() }
             guard !demo else { return }
-            await Self.deliver(trip, dir: dir, settings: snapshot)
+            await LoggerEngine.deliver(trip, dir: dir, settings: snapshot)
             await MainActor.run { [weak self] in self?.trips.refresh() }
         }
     }

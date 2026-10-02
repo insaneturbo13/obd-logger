@@ -53,10 +53,10 @@ struct SettingsData: Codable, Equatable {
 @Observable
 final class AppSettings {
     private(set) var data: SettingsData
-    private let key = "settings.v1"
+    private static let key = "settings.v1"
 
     init() {
-        data = Self.load(key: key)
+        data = Self.load(key: Self.key)
     }
 
     func update(_ change: (inout SettingsData) -> Void) {
@@ -64,7 +64,7 @@ final class AppSettings {
         change(&copy)
         guard copy != data else { return }
         data = copy
-        if let encoded = try? JSONEncoder().encode(copy) { UserDefaults.standard.set(encoded, forKey: key) }
+        if let encoded = try? JSONEncoder().encode(copy) { UserDefaults.standard.set(encoded, forKey: Self.key) }
     }
 
     func binding<T>(_ path: WritableKeyPath<SettingsData, T>) -> Binding<T> {
