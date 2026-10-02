@@ -71,8 +71,11 @@ struct RadialGauge: View {
                             .stroke(Palette.vermillion, style: StrokeStyle(lineWidth: line * 1.6))
                     }
                     if let f = reading.fraction {
+                        // Only the needle moves smoothly between readings; numbers change instantly.
                         GaugeArc(start: 0, end: f, inset: line * 1.6).stroke(hot ? Palette.vermillion : tint, style: StrokeStyle(lineWidth: line * 0.35, lineCap: .round))
+                            .animation(.easeOut(duration: 0.35), value: f)
                         GaugeNeedle(position: f).stroke(hot ? Palette.vermillion : Palette.text, style: StrokeStyle(lineWidth: max(3, line * 0.45), lineCap: .round))
+                            .animation(.easeOut(duration: 0.35), value: f)
                     }
                     VStack(spacing: 0) {
                         Text(reading.text)
@@ -106,7 +109,6 @@ struct RadialGauge: View {
             GaugeCaption(title: title ?? reading.name, reading: reading)
         }
         .opacity(reading.stale ? 0.45 : 1)
-        .animation(.easeOut(duration: 0.35), value: reading.fraction)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(title ?? reading.name) \(reading.text) \(reading.unit)\(hot ? ", hot" : "")\(reading.stale ? ", stale" : "")")
     }
@@ -168,6 +170,7 @@ struct BarGauge: View {
                     }
                 }
                 .clipShape(Capsule())
+                .animation(.easeOut(duration: 0.3), value: f)
             }
             .frame(height: 10)
             if reading.stale, let age = reading.age {
@@ -177,7 +180,6 @@ struct BarGauge: View {
         .padding(12)
         .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
         .opacity(reading.stale ? 0.5 : 1)
-        .animation(.easeOut(duration: 0.3), value: reading.fraction)
     }
 }
 
