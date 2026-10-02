@@ -1,0 +1,190 @@
+{
+  "format": 1,
+  "id": "subaru-outback-2010-25i-cvt",
+  "name": "Subaru Outback 2010 2.5i CVT",
+  "notes": "Subaru Select Monitor memory reads (service A8, one address per request) over CAN 11-bit 500 kbit/s. Each address answered a driveway probe on 2026-10-01 (engine off, idling, and through an engine start). Status: verified = confirmed against an independent signal while driving; candidate = answers, scaling consistent with idle readings and earlier recordings; assumed-scale = answers, scaling not yet seen move; raw = scaling unknown, logged as the raw byte; no-information = answers but never changes.",
+  "sensors": [
+    {
+      "id": "oil_temp",
+      "name": "Engine oil temperature",
+      "module": "7E0",
+      "ssm": "000113",
+      "scale": 1,
+      "offset": -40,
+      "unit": "celsius",
+      "category": "temperatures",
+      "period": 2,
+      "range": [
+        40,
+        130
+      ],
+      "status": "candidate",
+      "evidence": "Raw 0x78 (80 °C) at warm idle with coolant at 82 °C. Earlier recordings move in whole-degree Celsius steps and trail coolant on warm-up."
+    },
+    {
+      "id": "ignition_learned_correction",
+      "name": "Learned ignition timing correction",
+      "module": "7E0",
+      "ssm": "0000F9",
+      "unit": "raw",
+      "category": "engine",
+      "period": 30,
+      "status": "raw",
+      "evidence": "Answers one byte (0x03 at idle, unchanged through an engine start). Scaling not established, so it is logged as the raw byte."
+    },
+    {
+      "id": "cvt_fluid_temp",
+      "name": "CVT fluid temperature",
+      "module": "7E1",
+      "ssm": "000056",
+      "scale": 1,
+      "offset": -40,
+      "unit": "celsius",
+      "category": "temperatures",
+      "period": 2,
+      "range": [
+        20,
+        130
+      ],
+      "status": "candidate",
+      "evidence": "Raw 0x6E (70 °C) at warm idle. Earlier recordings move in whole-degree Celsius steps."
+    },
+    {
+      "id": "turbine_speed",
+      "name": "Torque converter turbine speed",
+      "module": "7E1",
+      "ssm": "00004F",
+      "scale": 32,
+      "unit": "rpm",
+      "category": "drivetrain",
+      "period": 2,
+      "range": [
+        0,
+        6000
+      ],
+      "status": "candidate",
+      "evidence": "Raw 0x14 = 640 rpm at idle in Park with engine speed 681 rpm. Earlier recordings move in 32 rpm steps."
+    },
+    {
+      "id": "lockup_duty",
+      "name": "Lock-up clutch duty",
+      "module": "7E1",
+      "ssm": "00004C",
+      "scale": 0.5,
+      "unit": "percent",
+      "category": "drivetrain",
+      "period": 2,
+      "range": [
+        0,
+        100
+      ],
+      "status": "candidate",
+      "evidence": "Earlier drive recordings take values in 0.5 % steps between 0 and 99.5 %."
+    },
+    {
+      "id": "transfer_duty",
+      "name": "AWD transfer clutch duty",
+      "module": "7E1",
+      "ssm": "00004D",
+      "scale": 0.5,
+      "unit": "percent",
+      "category": "drivetrain",
+      "period": 5,
+      "range": [
+        0,
+        100
+      ],
+      "status": "assumed-scale",
+      "evidence": "Answers (0 at idle). Scaling assumed to match the lock-up duty until seen moving."
+    },
+    {
+      "id": "front_wheel_speed_tcm",
+      "name": "Front wheel speed (transmission)",
+      "module": "7E1",
+      "ssm": "000048",
+      "scale": 1,
+      "unit": "kmh",
+      "category": "drivetrain",
+      "period": 2,
+      "range": [
+        0,
+        200
+      ],
+      "status": "candidate",
+      "evidence": "Earlier drive recordings are whole km/h (e.g. 12 and 15 km/h)."
+    },
+    {
+      "id": "rear_wheel_speed_tcm",
+      "name": "Rear wheel speed (transmission)",
+      "module": "7E1",
+      "ssm": "000051",
+      "scale": 1,
+      "unit": "kmh",
+      "category": "drivetrain",
+      "period": 30,
+      "status": "no-information",
+      "enabled": false,
+      "evidence": "Answers but reads 0 in every recording, including at 80 mph. Use the ABS/VDC rear axle speed instead."
+    },
+    {
+      "id": "front_axle_speed_vdc",
+      "name": "Front axle mean speed (ABS/VDC)",
+      "module": "7E1",
+      "ssm": "000294",
+      "scale": 1,
+      "unit": "kmh",
+      "category": "drivetrain",
+      "period": 2,
+      "range": [
+        0,
+        200
+      ],
+      "status": "candidate",
+      "evidence": "Earlier drive recordings are whole km/h and track vehicle speed."
+    },
+    {
+      "id": "rear_axle_speed_vdc",
+      "name": "Rear axle mean speed (ABS/VDC)",
+      "module": "7E1",
+      "ssm": "000295",
+      "scale": 1,
+      "unit": "kmh",
+      "category": "drivetrain",
+      "period": 2,
+      "range": [
+        0,
+        200
+      ],
+      "status": "candidate",
+      "evidence": "Earlier drive recordings are whole km/h and track vehicle speed."
+    },
+    {
+      "id": "front_rear_rotation_ratio",
+      "name": "Front-to-rear rotation ratio",
+      "module": "7E1",
+      "ssm": "000293",
+      "scale": 0.008,
+      "unit": "ratio",
+      "category": "drivetrain",
+      "period": 5,
+      "range": [
+        0.8,
+        1.2
+      ],
+      "status": "candidate",
+      "evidence": "Raw 0x80 at rest; earlier recordings show 1.024 at rest."
+    },
+    {
+      "id": "atf_deterioration",
+      "name": "Transmission fluid deterioration",
+      "module": "7E1",
+      "ssm": "000296",
+      "unit": "raw",
+      "category": "drivetrain",
+      "period": 60,
+      "status": "no-information",
+      "enabled": false,
+      "evidence": "Answers but is always 0, so a genuine zero can't be told from an unfilled value."
+    }
+  ]
+}
