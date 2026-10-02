@@ -1,0 +1,62 @@
+name: Screenshots
+
+# Runs the app in demo mode (simulated car) on an iPad simulator and captures each screen.
+# Manual only: it uses about 10 macOS minutes.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  screenshots:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select the newest Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | grep -iv beta | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE"
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          cd App && xcodegen generate
+      - name: Boot an iPad simulator
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          ipads = [d for runtime, ds in sorted(devices.items()) if "iOS" in runtime for d in ds if d["name"].startswith("iPad Pro")]
+          print(ipads[-1]["udid"])')
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+      - name: Build and install
+        run: |
+          cd App
+          set -o pipefail
+          xcodebuild -project OBDLogger.xcodeproj -scheme OBDLogger -configuration Debug \
+            -destination "id=$UDID" -derivedDataPath "$RUNNER_TEMP/dd" CODE_SIGNING_ALLOWED=NO build -quiet
+          xcrun simctl install "$UDID" "$RUNNER_TEMP/dd/Build/Products/Debug-iphonesimulator/OBDLogger.app"
+      - name: Capture
+        run: |
+          mkdir -p shots
+          BUNDLE=com.example.obdlogger
+          shot() {
+            xcrun simctl launch --terminate-running-process "$UDID" "$BUNDLE" -demo -demoStart 1500 "$@" > /dev/null
+            sleep "$WAIT"
+            xcrun simctl io "$UDID" screenshot "shots/$NAME.png"
+          }
+          WAIT=45 NAME=1-cockpit shot -tab 0 -page 0
+          WAIT=25 NAME=2-drivetrain shot -tab 0 -page 1
+          WAIT=25 NAME=3-air-fuel shot -tab 0 -page 2
+          WAIT=25 NAME=4-trends shot -tab 0 -page 3
+          WAIT=12 NAME=5-trips shot -tab 1
+          WAIT=15 NAME=6-sensors shot -tab 2
+          WAIT=12 NAME=7-codes shot -tab 3
+          WAIT=8 NAME=8-settings shot -tab 4
+          xcrun simctl spawn "$UDID" log show --last 6m --predicate 'process == "OBDLogger"' --style compact > shots/app.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: shots/

@@ -18,9 +18,40 @@ final class AppModel {
     }
 }
 
+/// Launch arguments for automated screenshots (debug builds only):
+/// `-demo` forces demo mode, `-demoStart <s>` starts the simulated drive that many seconds in,
+/// `-tab <n>` and `-page <n>` pick the tab and dashboard page.
+struct LaunchOptions {
+    var demo = false
+    var demoStart: Double = 0
+    var tab: Int?
+    var page: Int?
+
+    static let current: LaunchOptions = {
+        var o = LaunchOptions()
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        func value(_ flag: String) -> String? {
+            guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+            return args[i + 1]
+        }
+        o.demo = args.contains("-demo")
+        o.demoStart = value("-demoStart").flatMap(Double.init) ?? 0
+        o.tab = value("-tab").flatMap(Int.init)
+        o.page = value("-page").flatMap(Int.init)
+        #endif
+        return o
+    }()
+}
+
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        AppModel.shared.engine.start()
+        let model = AppModel.shared
+        let options = LaunchOptions.current
+        if options.demo { model.settings.update { $0.demoMode = true } }
+        if let page = options.page { model.settings.update { $0.dashboardPage = page } }
+        model.engine.demoStart = options.demoStart
+        model.engine.start()
         return true
     }
 }
@@ -51,19 +82,20 @@ struct OBDLoggerApp: App {
 
 struct RootView: View {
     @Environment(LoggerEngine.self) private var engine
+    @State private var tab = LaunchOptions.current.tab ?? 0
 
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             DashboardView()
-                .tabItem { Label("Dashboard", systemImage: "gauge.with.dots.needle.67percent") }
+                .tabItem { Label("Dashboard", systemImage: "gauge.with.dots.needle.67percent") }.tag(0)
             TripsView()
-                .tabItem { Label("Trips", systemImage: "road.lanes") }
+                .tabItem { Label("Trips", systemImage: "road.lanes") }.tag(1)
             SensorsView()
-                .tabItem { Label("Sensors", systemImage: "sensor") }
+                .tabItem { Label("Sensors", systemImage: "sensor") }.tag(2)
             CodesView()
-                .tabItem { Label("Codes", systemImage: "stethoscope") }
+                .tabItem { Label("Codes", systemImage: "stethoscope") }.tag(3)
             SettingsView()
-                .tabItem { Label("Settings", systemImage: "gearshape") }
+                .tabItem { Label("Settings", systemImage: "gearshape") }.tag(4)
         }
         .background(Palette.background)
         // Keep the screen on while the car is answering (the iPad is the dashboard).

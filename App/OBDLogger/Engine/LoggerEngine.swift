@@ -46,6 +46,8 @@ final class LoggerEngine {
     private(set) var lastMessage: String?
     private(set) var coolantAlertActive = false
     private(set) var isDemo = false
+    /// Seconds into the simulated drive at which demo mode starts (screenshots use a warm engine).
+    @ObservationIgnored var demoStart: Double = 0
 
     let live = LiveData()
     let settings: AppSettings
@@ -74,7 +76,7 @@ final class LoggerEngine {
     func start() {
         isDemo = settings.data.demoMode
         if isDemo {
-            let sim = SimulatedAdapter(latency: 0.06)
+            let sim = SimulatedAdapter(latency: 0.06, startAt: demoStart)
             simulator = sim
             adapterName = "Simulated car"
             begin(sim)
@@ -271,8 +273,10 @@ final class LoggerEngine {
         activeTrip = rec.meta
         rec.event("connected", [adapterName, adapterInfo?.identity, adapterInfo?.protocolName, adapterInfo?.filterMode]
             .compactMap { $0 }.joined(separator: "; "))
-        location.start()
-        Notifier.requestAuthorization()
+        if !isDemo {
+            location.start()
+            Notifier.requestAuthorization()
+        }
         startActivityIfPossible()
         trips.refresh()
     }
