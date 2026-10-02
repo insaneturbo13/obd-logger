@@ -72,6 +72,12 @@ public struct DisplayValue: Sendable, Equatable {
     public var unit: String
     public var decimals: Int
 
+    public init(value: Double, unit: String, decimals: Int) {
+        self.value = value
+        self.unit = unit
+        self.decimals = decimals
+    }
+
     public var text: String { DisplayValue.format(value, decimals: decimals) }
     public var textWithUnit: String { unit.isEmpty ? text : "\(text) \(unit)" }
 
