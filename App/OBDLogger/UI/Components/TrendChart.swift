@@ -53,6 +53,7 @@ struct TrendChart: View {
         }
         .chartForegroundStyleScale(domain: series.map(\.name), range: series.map(\.color))
         .chartXScale(domain: xDomain ?? Date().addingTimeInterval(-window)...Date())
+        .chartYScale(domain: .automatic(includesZero: false))
         .chartYAxisLabel(unit)
         .chartLegend(position: .top, alignment: .leading)
         .chartXAxis {

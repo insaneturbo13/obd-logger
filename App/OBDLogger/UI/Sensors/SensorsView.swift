@@ -58,13 +58,6 @@ struct SensorsView: View {
             .background(Palette.background)
             .searchable(text: $search)
             .navigationTitle("Sensors")
-            .toolbar {
-                ToolbarItem(placement: .status) {
-                    if engine.link == .polling {
-                        Text(String(format: "%.1f requests/s", engine.stats.requestsPerSecond)).font(.caption).foregroundStyle(Palette.textSecondary)
-                    }
-                }
-            }
         }
     }
 

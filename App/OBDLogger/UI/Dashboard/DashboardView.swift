@@ -159,7 +159,7 @@ struct TripFuelTile: View {
         let used = engine.reading(DerivedSignals.fuelUsed)
         let liters = engine.live.latest[DerivedSignals.fuelUsed]?.value ?? 0
         let cost = liters * UnitConverter.gallonsPerLiter * settings.data.fuelPricePerGallon
-        ValueTile(reading: used, title: "Fuel this trip", footnote: String(format: "≈ $%.2f at $%.2f/gal (estimate from airflow)", cost, settings.data.fuelPricePerGallon))
+        ValueTile(reading: used, title: "Fuel this trip", footnote: String(format: "≈ $%.2f at $%.2f/gal", cost, settings.data.fuelPricePerGallon))
     }
 }
 
@@ -184,7 +184,7 @@ struct DrivetrainPage: View {
                 ValueTile(reading: engine.reading(DerivedSignals.converterSlip), title: "Converter slip")
                 ValueTile(reading: engine.reading("front_axle_speed_vdc"), title: "Front axle (ABS)")
                 ValueTile(reading: engine.reading("rear_axle_speed_vdc"), title: "Rear axle (ABS)")
-                ValueTile(reading: engine.reading("front_wheel_speed_tcm"), title: "Front wheels (CVT)")
+                ValueTile(reading: engine.reading("front_wheel_speed_tcm"), title: "Wheels (CVT)")
                 ValueTile(reading: engine.reading("front_rear_rotation_ratio"), title: "Front:rear ratio")
                 ValueTile(reading: engine.reading(DerivedSignals.rpmPerSpeed), title: "Engine/road speed")
                 ValueTile(reading: engine.reading(GPSSignals.speed), title: "GPS speed")

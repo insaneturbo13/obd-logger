@@ -74,6 +74,7 @@ final class LoggerEngine {
     // MARK: connection
 
     func start() {
+        recoverUnfinishedTrips()
         isDemo = settings.data.demoMode
         if isDemo {
             let sim = SimulatedAdapter(latency: 0.06, startAt: demoStart)
@@ -248,8 +249,8 @@ final class LoggerEngine {
         tripEndTask?.cancel()
         let window = settings.data.mergeWindowMinutes * 60
         var rec: TripRecorder?
-        if let last = trips.trips.first, let end = last.meta.endedAt, now.timeIntervalSince(end) < window,
-           last.meta.notes == tripNotes {
+        if let last = trips.trips.first, let end = last.meta.endedAt ?? Self.lastWrite(last.directory),
+           now.timeIntervalSince(end) < window, (last.meta.notes?.contains("Simulated") == true) == isDemo {
             rec = try? TripRecorder.resume(directory: last.directory, at: now, traceEnabled: settings.data.saveTrace)
             if let s = last.meta.summary { derived.resume(distanceKm: s.distanceKm, fuelLiters: s.fuelLiters) }
         }
@@ -317,6 +318,38 @@ final class LoggerEngine {
             await LoggerEngine.deliver(trip, dir: dir, settings: snapshot)
             await MainActor.run { [weak self] in self?.trips.refresh() }
         }
+    }
+
+    /// Finalizes trips cut short by the app being killed or crashing: end time, summary,
+    /// export and upload, as a normal trip end would have done.
+    private func recoverUnfinishedTrips() {
+        let pending = trips.trips.filter { $0.meta.endedAt == nil }.map(\.directory)
+        guard !pending.isEmpty else { return }
+        let snapshot = settings.data
+        Task.detached(priority: .utility) { [weak self] in
+            for dir in pending {
+                guard var trip = try? TripData.load(dir) else { continue }
+                let end = trip.end
+                trip.meta.endedAt = end
+                if !trip.meta.segments.isEmpty { trip.meta.segments[trip.meta.segments.count - 1].end = end }
+                trip.meta.summary = trip.summarize()
+                let meta = trip.meta
+                // Skip a trip that has meanwhile been resumed by a new connection.
+                let stillIdle = await MainActor.run { self?.recorder?.directory != dir }
+                guard stillIdle else { continue }
+                try? TripFiles.writeMeta(meta, to: dir)
+                if meta.notes?.contains("Simulated") != true {
+                    await LoggerEngine.deliver(trip, dir: dir, settings: snapshot)
+                }
+            }
+            await MainActor.run { self?.trips.refresh() }
+        }
+    }
+
+    /// When a trip folder was last written (its end, if the app died before closing it).
+    nonisolated static func lastWrite(_ dir: URL) -> Date? {
+        let url = dir.appendingPathComponent(TripFiles.samples)
+        return (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
     }
 
     /// Exports and uploads a finished trip as configured. Failures are noted in the trip.
