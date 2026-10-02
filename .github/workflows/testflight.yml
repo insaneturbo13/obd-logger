@@ -43,6 +43,25 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/keys"
           echo "${{ secrets.ASC_KEY_P8_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/keys/AuthKey_$KEY_ID.p8"
+      - name: Validate API key file
+        run: |
+          set +x
+          KEY_PATH="$RUNNER_TEMP/keys/AuthKey_$KEY_ID.p8"
+          if [ ! -r "$KEY_PATH" ] || [ ! -s "$KEY_PATH" ]; then
+            echo "::error::API key file readability/nonempty check: FAIL"
+            exit 1
+          fi
+          echo "API key file readability/nonempty check: PASS"
+          if ! openssl pkcs8 -in "$KEY_PATH" -inform PEM -nocrypt -out /dev/null >/dev/null 2>&1; then
+            echo "::error::API key PKCS#8 PEM format check: FAIL"
+            exit 1
+          fi
+          echo "API key PKCS#8 PEM format check: PASS"
+          if ! openssl pkey -in "$KEY_PATH" -inform PEM -check -noout -passin pass: >/dev/null 2>&1; then
+            echo "::error::API key consistency check: FAIL"
+            exit 1
+          fi
+          echo "API key consistency check: PASS"
       - name: Archive
         run: |
           cd App
