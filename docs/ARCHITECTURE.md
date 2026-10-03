@@ -51,8 +51,21 @@ PIDs with the next-most-due. Under overload every item slows by the same factor 
 of some starving. A module change is only made when the other module's work is clearly
 more overdue (stickiness), and once there, that module's nearly-due items are served as a
 batch so they stay in phase. With everything on for the Outback (44 standard PIDs + 10
-SSM values) the simulation gives ~2 Hz engine speed, ~1 Hz coolant and transmission values
-every 2–2.5 s.
+SSM values) and generic periods, the simulation gives ~2 Hz engine speed, ~1 Hz coolant and
+transmission values every 2–2.5 s; a real drive's raw export (2026-10-02) came within ~5 %
+of that.
+
+A vehicle profile can set its own periods (`standardPeriods`, and `period` per sensor) and
+**modes**: periods that apply only while a condition holds. Conditions are "stationary"
+(road speed has read 0 for N seconds; ends the moment it reads above 0) and "coolant at
+least N °C" (ends 2 °C lower). The Outback profile polls engine speed, road speed, airflow,
+throttle and pedal every 0.33 s and coolant, timing and module voltage every 0.5 s; when
+stopped it slows the wheel-speed, AWD, torque-converter and EGR reads, and when hot it
+polls coolant and module voltage every 0.33 s. On a hot idle that halves module changes and
+brings coolant and voltage to ~0.27 s. A period changed by mode is rescheduled from the
+item's last read, so items that speed up are read at once. Mode changes go to the trip's
+events (`poll_modes`) so slower polling isn't mistaken for a stall; the user's own period
+for an item always wins.
 
 The capability map (per car, keyed by the modules' support bitmaps, not the VIN) records
 each item as active, silent or unsupported. Unsupported items are never asked again unless

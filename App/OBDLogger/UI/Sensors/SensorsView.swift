@@ -8,7 +8,7 @@ struct SensorsView: View {
     @Environment(AppSettings.self) private var settings
     @State private var search = ""
 
-    static let periods: [Double] = [0.33, 0.5, 1, 2, 5, 10, 30, 60]
+    static let periods: [Double] = [0.33, 0.5, 1, 2, 3, 5, 10, 30, 60]
 
     struct Row: Identifiable {
         let id: String

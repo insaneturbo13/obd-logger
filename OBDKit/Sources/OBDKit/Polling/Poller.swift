@@ -29,6 +29,8 @@ public enum PollerEvent: Sendable {
     case vehicle(VehicleState)
     case stats(PollerStats)
     case capability(CapabilityMap)
+    /// The profile modes now in effect (e.g. "stationary", "hot"); empty when none are.
+    case modes(Set<String>)
     case note(String)
     case finished(reason: String)
 }
@@ -44,6 +46,9 @@ public actor Poller {
     private var scheduler: Scheduler
     private var capability: CapabilityMap
     private var capabilityDirty = false
+    private var modeTracker: PollModeTracker
+    /// Items whose period the user changed during this connection; modes leave them alone.
+    private var pinned: Set<String> = []
 
     private struct Job {
         let run: @Sendable (ELMSession) async -> Void
@@ -73,6 +78,7 @@ public actor Poller {
         self.plan = plan
         self.capability = capability
         self.scheduler = Scheduler(items: plan.items, now: 0)
+        self.modeTracker = PollModeTracker(modes: plan.modes)
         var c: AsyncStream<PollerEvent>.Continuation!
         self.events = AsyncStream(bufferingPolicy: .bufferingNewest(500)) { c = $0 }
         self.continuation = c
@@ -101,15 +107,19 @@ public actor Poller {
     }
 
     public func setPeriod(_ key: String, _ period: Double) {
+        pinned.insert(key)
         scheduler.setPeriod(key, period)
         if let i = plan.items.firstIndex(where: { $0.key == key }) { plan.items[i].period = period }
     }
+
+    public func activeModes() -> Set<String> { modeTracker.active }
 
     public func setEnabled(_ key: String, _ on: Bool) {
         if on, let i = plan.inactive.firstIndex(where: { $0.key == key }) {
             let item = plan.inactive.remove(at: i)
             plan.items.append(item)
             scheduler.add(item, now: now())
+            if !pinned.contains(key), let p = modeTracker.period(for: key) { scheduler.setPeriod(key, p) }
         } else if !on, let i = plan.items.firstIndex(where: { $0.key == key }) {
             plan.inactive.append(plan.items.remove(at: i))
             scheduler.remove(key)
@@ -300,6 +310,16 @@ public actor Poller {
         guard !samples.isEmpty else { return }
         valueTimes.append((now(), samples.count))
         continuation.yield(.samples(samples))
+        if modeTracker.ingest(samples, now: now()) { applyModes() }
+    }
+
+    /// Puts every item on the period its active modes call for, or back on its normal one.
+    private func applyModes() {
+        for item in plan.items where !pinned.contains(item.key) {
+            let period = modeTracker.period(for: item.key) ?? item.period
+            if scheduler.period(item.key) != period { scheduler.setPeriod(item.key, period) }
+        }
+        continuation.yield(.modes(modeTracker.active))
     }
 
     private func emitStats() {

@@ -195,6 +195,9 @@ final class LoggerEngine {
         case .capability(let map):
             capability = map
             trips.saveCapability(map)
+        case .modes(let active):
+            // Recorded so the exports can tell slowed polling from a stall.
+            recorder?.event("poll_modes", active.sorted().joined(separator: ","))
         case .note(let text):
             lastMessage = text
             recorder?.event("note", text)

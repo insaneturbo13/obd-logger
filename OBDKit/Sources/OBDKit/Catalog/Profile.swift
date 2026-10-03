@@ -6,13 +6,21 @@ public struct VehicleProfile: Codable, Sendable, Equatable {
     public var id: String
     public var name: String
     public var notes: String?
+    /// Poll periods (seconds) for standard service 01 PIDs on this car, keyed by PID as two hex
+    /// digits ("05"). Replaces the generic default; the user's own setting still wins.
+    public var standardPeriods: [String: Double]?
+    /// Periods that apply only while the car is in some state (stopped, hot, ...).
+    public var modes: [PollMode]?
     public var sensors: [ProfileSensor]
 
-    public init(format: Int = 1, id: String, name: String, notes: String? = nil, sensors: [ProfileSensor]) {
+    public init(format: Int = 1, id: String, name: String, notes: String? = nil,
+                standardPeriods: [String: Double]? = nil, modes: [PollMode]? = nil, sensors: [ProfileSensor]) {
         self.format = format
         self.id = id
         self.name = name
         self.notes = notes
+        self.standardPeriods = standardPeriods
+        self.modes = modes
         self.sensors = sensors
     }
 
@@ -20,13 +28,69 @@ public struct VehicleProfile: Codable, Sendable, Equatable {
         let p = try JSONDecoder().decode(VehicleProfile.self, from: data)
         guard p.format == 1 else { throw ProfileError.unsupportedFormat(p.format) }
         for s in p.sensors { try s.validate() }
+        try validatePeriods(p.standardPeriods ?? [:], context: "standardPeriods")
+        for m in p.modes ?? [] {
+            guard m.when.stationaryFor != nil || m.when.coolantAtLeast != nil else {
+                throw ProfileError.invalidMode(m.id, "needs a condition")
+            }
+            try validatePeriods(m.standardPeriods ?? [:], context: m.id)
+            for (id, period) in m.sensorPeriods ?? [:] {
+                guard p.sensors.contains(where: { $0.id == id }) else { throw ProfileError.invalidMode(m.id, "unknown sensor \(id)") }
+                guard period > 0 else { throw ProfileError.invalidMode(m.id, "period for \(id) must be positive") }
+            }
+        }
         return p
+    }
+
+    private static func validatePeriods(_ periods: [String: Double], context: String) throws {
+        for (pid, period) in periods {
+            guard pid.count == 2, UInt8(pid, radix: 16) != nil, period > 0 else {
+                throw ProfileError.invalidStandardPeriod("\(context): \(pid)")
+            }
+        }
+    }
+
+    /// This car's period for a standard PID, if the profile sets one.
+    public func standardPeriod(_ pid: UInt8) -> Double? {
+        standardPeriods?.first { UInt8($0.key, radix: 16) == pid }?.value
     }
 }
 
 public enum ProfileError: Error, Equatable {
     case unsupportedFormat(Int)
     case invalidSensor(String, String)
+    case invalidStandardPeriod(String)
+    case invalidMode(String, String)
+}
+
+/// Poll periods for a car state. While the condition holds, the listed items use these
+/// periods instead of their normal ones; if several modes are active, the shortest wins.
+public struct PollMode: Codable, Sendable, Equatable {
+    public struct Condition: Codable, Sendable, Equatable {
+        /// Road speed has read 0 for this many seconds. Ends as soon as it reads above 0.
+        public var stationaryFor: Double?
+        /// Coolant at or above this temperature (°C). Ends 2 °C below it.
+        public var coolantAtLeast: Double?
+
+        public init(stationaryFor: Double? = nil, coolantAtLeast: Double? = nil) {
+            self.stationaryFor = stationaryFor
+            self.coolantAtLeast = coolantAtLeast
+        }
+    }
+
+    public var id: String
+    public var when: Condition
+    /// Standard PID (two hex digits) -> period in seconds.
+    public var standardPeriods: [String: Double]?
+    /// Profile sensor id -> period in seconds.
+    public var sensorPeriods: [String: Double]?
+
+    public init(id: String, when: Condition, standardPeriods: [String: Double]? = nil, sensorPeriods: [String: Double]? = nil) {
+        self.id = id
+        self.when = when
+        self.standardPeriods = standardPeriods
+        self.sensorPeriods = sensorPeriods
+    }
 }
 
 /// One manufacturer-specific value: which module to ask, how to ask, and how to scale the reply.

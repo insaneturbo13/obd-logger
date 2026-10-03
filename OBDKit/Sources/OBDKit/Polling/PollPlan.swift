@@ -46,6 +46,8 @@ public struct PollPlan: Sendable {
     public var signals: [SignalID: SignalInfo]
     public var itemKeyForSignal: [SignalID: String]
     public var profileSensors: [String: ProfileSensor]
+    /// Periods that apply while the car is in some state (see `PollModeTracker`).
+    public var modes: [Mode] = []
 
     public static let engineHeader: UInt16 = 0x7E0
 
@@ -55,6 +57,7 @@ public struct PollPlan: Sendable {
         var signals: [SignalID: SignalInfo] = [:]
         var itemKeyForSignal: [SignalID: String] = [:]
         var sensors: [String: ProfileSensor] = [:]
+        var sensorKeys: [String: String] = [:]
 
         func place(_ item: PollItem, defaultOn: Bool) {
             var item = item
@@ -65,7 +68,7 @@ public struct PollPlan: Sendable {
 
         for pid in supported.sorted() where !StandardPIDs.isSupportBitmap(pid) {
             guard let def = StandardPIDs.all[pid] else { continue }
-            let item = PollItem(header: engineHeader, request: .mode01(pid), period: def.period)
+            let item = PollItem(header: engineHeader, request: .mode01(pid), period: profile?.standardPeriod(pid) ?? def.period)
             for o in def.outputs {
                 signals[o.info.id] = o.info
                 itemKeyForSignal[o.info.id] = item.key
@@ -76,11 +79,13 @@ public struct PollPlan: Sendable {
             guard let header = s.header, let command = s.request else { continue }
             let item = PollItem(header: header, request: .profile(id: s.id, command: command), period: s.period ?? 2)
             sensors[s.id] = s
+            sensorKeys[s.id] = item.key
             signals[s.signalID] = s.info
             itemKeyForSignal[s.signalID] = item.key
             place(item, defaultOn: s.enabled ?? true)
         }
+        let modes = resolveModes(profile, items: items + inactive, sensorKeys: sensorKeys, overrides: overrides)
         return PollPlan(items: items, inactive: inactive, signals: signals,
-                        itemKeyForSignal: itemKeyForSignal, profileSensors: sensors)
+                        itemKeyForSignal: itemKeyForSignal, profileSensors: sensors, modes: modes)
     }
 }

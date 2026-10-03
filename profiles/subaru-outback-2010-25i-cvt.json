@@ -2,7 +2,77 @@
   "format": 1,
   "id": "subaru-outback-2010-25i-cvt",
   "name": "Subaru Outback 2010 2.5i CVT",
-  "notes": "Subaru Select Monitor memory reads (service A8, one address per request) over CAN 11-bit 500 kbit/s. Each address answered a driveway probe on 2026-10-01 (engine off, idling, and through an engine start). Status: verified = confirmed against an independent signal while driving; candidate = answers, scaling consistent with idle readings and earlier recordings; assumed-scale = answers, scaling not yet seen move; raw = scaling unknown, logged as the raw byte; no-information = answers but never changes.",
+  "notes": "Subaru Select Monitor memory reads (service A8, one address per request) over CAN 11-bit 500 kbit/s. Each address answered a driveway probe on 2026-10-01 (engine off, idling, and through an engine start). Status: verified = confirmed against an independent signal while driving; candidate = answers, scaling consistent with idle readings and earlier recordings; assumed-scale = answers, scaling not yet seen move; raw = scaling unknown, logged as the raw byte; no-information = answers but never changes. Poll periods were set from the first full day of drives (2026-10-02, raw export): every request takes about 112 ms on the Veepeak, packed or not, so standard PIDs that duplicate another reading (pedal E, throttle B, relative throttle/pedal, the voltage-type O2 ratio) and the transmission reads are polled slowly. That frees room for engine speed, road speed, airflow, throttle and pedal every 0.33 s and coolant, ignition timing and module voltage every 0.5 s. Modes: stopped for 3 s (road speed 0), the wheel-speed, AWD and torque-converter reads and EGR (commanded 0 at idle) slow down so a hot idle gets the adapter's time; at 98 °C coolant and above (the fans start near 100 °C), coolant and module voltage go to every 0.33 s to catch fan switching.",
+  "standardPeriods": {
+    "03": 5,
+    "04": 1,
+    "05": 0.5,
+    "06": 1,
+    "07": 5,
+    "0B": 1,
+    "0C": 0.33,
+    "0D": 0.33,
+    "0E": 0.5,
+    "0F": 2,
+    "10": 0.33,
+    "11": 0.33,
+    "15": 5,
+    "1F": 10,
+    "24": 10,
+    "2C": 5,
+    "2D": 5,
+    "2E": 5,
+    "2F": 30,
+    "32": 5,
+    "33": 30,
+    "34": 2,
+    "3C": 10,
+    "42": 0.5,
+    "43": 5,
+    "44": 2,
+    "45": 10,
+    "46": 60,
+    "47": 10,
+    "49": 0.33,
+    "4A": 10,
+    "4C": 2,
+    "5A": 10
+  },
+  "modes": [
+    {
+      "id": "stationary",
+      "when": {
+        "stationaryFor": 3
+      },
+      "standardPeriods": {
+        "2C": 30,
+        "2D": 30
+      },
+      "sensorPeriods": {
+        "turbine_speed": 10,
+        "lockup_duty": 10,
+        "transfer_duty": 30,
+        "front_wheel_speed_tcm": 30,
+        "front_axle_speed_vdc": 30,
+        "rear_axle_speed_vdc": 30,
+        "front_rear_rotation_ratio": 60
+      }
+    },
+    {
+      "id": "hot",
+      "when": {
+        "coolantAtLeast": 98
+      },
+      "standardPeriods": {
+        "05": 0.33,
+        "42": 0.33,
+        "0F": 1
+      },
+      "sensorPeriods": {
+        "oil_temp": 2
+      }
+    }
+  ],
   "sensors": [
     {
       "id": "oil_temp",
@@ -13,7 +83,7 @@
       "offset": -40,
       "unit": "celsius",
       "category": "temperatures",
-      "period": 2,
+      "period": 3,
       "range": [
         40,
         130
@@ -41,7 +111,7 @@
       "offset": -40,
       "unit": "celsius",
       "category": "temperatures",
-      "period": 2,
+      "period": 6,
       "range": [
         20,
         130
@@ -57,7 +127,7 @@
       "scale": 32,
       "unit": "rpm",
       "category": "drivetrain",
-      "period": 2,
+      "period": 3,
       "range": [
         0,
         6000
@@ -73,7 +143,7 @@
       "scale": 0.5,
       "unit": "percent",
       "category": "drivetrain",
-      "period": 2,
+      "period": 3,
       "range": [
         0,
         100
@@ -89,7 +159,7 @@
       "scale": 0.5,
       "unit": "percent",
       "category": "drivetrain",
-      "period": 5,
+      "period": 6,
       "range": [
         0,
         100
@@ -105,7 +175,7 @@
       "scale": 1,
       "unit": "kmh",
       "category": "drivetrain",
-      "period": 2,
+      "period": 6,
       "range": [
         0,
         200
@@ -134,7 +204,7 @@
       "scale": 1,
       "unit": "kmh",
       "category": "drivetrain",
-      "period": 2,
+      "period": 6,
       "range": [
         0,
         200
@@ -150,7 +220,7 @@
       "scale": 1,
       "unit": "kmh",
       "category": "drivetrain",
-      "period": 2,
+      "period": 6,
       "range": [
         0,
         200
@@ -166,7 +236,7 @@
       "scale": 0.008,
       "unit": "ratio",
       "category": "drivetrain",
-      "period": 5,
+      "period": 30,
       "range": [
         0.8,
         1.2

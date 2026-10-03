@@ -21,6 +21,7 @@ public struct Scheduler: Sendable {
         var item: PollItem
         var due: Double
         var blockedUntil: Double = -.infinity
+        var lastSent: Double?
     }
 
     private(set) var entries: [String: Entry] = [:]
@@ -53,10 +54,16 @@ public struct Scheduler: Sendable {
 
     public mutating func remove(_ key: String) { entries[key] = nil }
 
+    /// Changes an item's period. Its next poll moves to one new period after the last one, so
+    /// an item that speeds up is read right away instead of waiting out its old period.
     public mutating func setPeriod(_ key: String, _ period: Double) {
-        guard period > 0 else { return }
-        entries[key]?.item.period = period
+        guard period > 0, var e = entries[key] else { return }
+        e.item.period = period
+        if let last = e.lastSent { e.due = last + period }
+        entries[key] = e
     }
+
+    public func period(_ key: String) -> Double? { entries[key]?.item.period }
 
     /// Keep an item out of the rotation until `until` (backoff for silent sensors).
     public mutating func block(_ key: String, until: Double) { entries[key]?.blockedUntil = until }
@@ -120,6 +127,7 @@ public struct Scheduler: Sendable {
         for key in request.keys {
             guard let e = entries[key] else { continue }
             entries[key]!.due = now + e.item.period
+            entries[key]!.lastSent = now
         }
     }
 }
