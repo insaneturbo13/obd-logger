@@ -37,6 +37,9 @@ targets:
       path: OBDLogger/Info.plist
       properties:
         CFBundleDisplayName: OBD Logger
+        # XcodeGen writes a literal "1" unless told otherwise; the TestFlight workflow sets
+        # CURRENT_PROJECT_VERSION to its run number so every upload gets a new build number.
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         UIApplicationSceneManifest:
@@ -85,6 +88,7 @@ targets:
       path: Widget/Info.plist
       properties:
         CFBundleDisplayName: OBD Logger
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)" # must match the app's
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
