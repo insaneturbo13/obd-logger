@@ -142,4 +142,8 @@ never paired doesn't scan until **Find adapter** is tapped.
 - `location`: while a trip records, GPS runs with background updates allowed. This keeps
   the app running in front of Maps and adds position/speed to the trip.
 - The Live Activity can only be started while the app is in the foreground; a trip that
-  starts in the background gets it the next time the app is opened.
+  starts in the background gets it the next time the app is opened. It only exists on the
+  device that is recording: a device with the adapter switched off never shows one.
+- In the Dynamic Island the reading is shown without its unit ("203°"). When another app
+  also has a Live Activity (music, a timer), each gets a spot about 25 pt across, where the
+  full "203 °F" was cut to "20…"; the island's text is a fixed size that shrinks to fit.

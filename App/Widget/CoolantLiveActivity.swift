@@ -12,35 +12,50 @@ struct OBDLoggerWidgets: WidgetBundle {
 struct CoolantLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: CoolantActivityAttributes.self) { context in
-            LockScreenView(state: context.state, start: context.attributes.tripStart)
+            LockScreenView(state: context.state, start: context.attributes.tripStart,
+                           stale: context.state.stale || context.isStale)
                 .activityBackgroundTint(Palette.background.opacity(0.92))
                 .activitySystemActionForegroundColor(Palette.text)
         } dynamicIsland: { context in
-            DynamicIsland {
+            let state = context.state
+            // Past the stale date (no update for 90 s: the app stopped or lost the car).
+            let stale = state.stale || context.isStale
+            return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Coolant").font(.caption2).foregroundStyle(Palette.textSecondary)
-                        Text(context.state.coolant).font(.title2.monospacedDigit().weight(.semibold))
-                            .foregroundStyle(context.state.hot ? Palette.vermillion : Palette.text)
+                        Text(state.coolant)
+                            .font(.title2.monospacedDigit().weight(.semibold))
+                            .lineLimit(1).minimumScaleFactor(0.6)
+                            .foregroundStyle(state.hot ? Palette.vermillion : Palette.text)
+                            .opacity(stale ? 0.5 : 1)
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("Oil").font(.caption2).foregroundStyle(Palette.textSecondary)
-                        Text(context.state.oil).font(.title3.monospacedDigit()).foregroundStyle(Palette.text)
+                        Text(state.oil)
+                            .font(.title3.monospacedDigit())
+                            .lineLimit(1).minimumScaleFactor(0.6)
+                            .foregroundStyle(Palette.text)
+                            .opacity(stale ? 0.5 : 1)
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    CoolantBar(state: context.state).frame(height: 10)
-                    Text(context.state.status).font(.caption2).foregroundStyle(Palette.textSecondary)
+                    VStack(alignment: .leading, spacing: 6) {
+                        CoolantBar(state: state).frame(height: 10)
+                        Text(stale ? "\(state.status) · no new data" : state.status)
+                            .font(.caption2).foregroundStyle(Palette.textSecondary).lineLimit(1)
+                    }
                 }
             } compactLeading: {
-                Image(systemName: "thermometer.medium").foregroundStyle(context.state.hot ? Palette.vermillion : Palette.skyBlue)
+                IslandIcon(state: state, stale: stale)
             } compactTrailing: {
-                Text(context.state.coolant).monospacedDigit().foregroundStyle(context.state.hot ? Palette.vermillion : Palette.text)
+                IslandReading(state: state, stale: stale, size: 16)
             } minimal: {
-                Text(context.state.coolant).font(.caption2.monospacedDigit())
+                IslandReading(state: state, stale: stale, size: 15)
             }
+            .keylineTint(state.hot ? Palette.vermillion : nil)
         }
     }
 }
@@ -48,6 +63,7 @@ struct CoolantLiveActivity: Widget {
 struct LockScreenView: View {
     let state: CoolantActivityAttributes.ContentState
     let start: Date
+    let stale: Bool
 
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
@@ -58,14 +74,14 @@ struct LockScreenView: View {
                         Text("HOT").font(.caption.weight(.bold)).padding(.horizontal, 6).padding(.vertical, 1)
                             .background(Palette.vermillion, in: Capsule()).foregroundStyle(Palette.background)
                     }
-                    if state.stale {
+                    if stale {
                         Text("no new data").font(.caption).foregroundStyle(Palette.yellow)
                     }
                 }
                 Text(state.coolant)
                     .font(.system(size: 40, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundStyle(state.hot ? Palette.vermillion : Palette.text)
-                    .opacity(state.stale ? 0.5 : 1)
+                    .opacity(stale ? 0.5 : 1)
                 CoolantBar(state: state).frame(height: 10)
             }
             Spacer(minLength: 8)

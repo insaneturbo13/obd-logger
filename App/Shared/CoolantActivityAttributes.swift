@@ -19,3 +19,12 @@ struct CoolantActivityAttributes: ActivityAttributes {
 
     var tripStart: Date
 }
+
+extension CoolantActivityAttributes.ContentState {
+    /// The reading without its unit, "203 °F" → "203°", for the Dynamic Island's small spots.
+    /// Derived here rather than sent, so the saved state keeps its shape across versions.
+    var coolantShort: String {
+        let number = coolant.prefix { $0.isNumber || $0 == "-" || $0 == "." || $0 == "," }
+        return number.isEmpty ? coolant : String(number) + "°"
+    }
+}
