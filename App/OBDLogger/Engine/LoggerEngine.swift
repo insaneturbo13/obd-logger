@@ -20,6 +20,10 @@ final class RecorderSlot: @unchecked Sendable {
 final class LoggerEngine {
     enum Link: Equatable {
         case starting, bluetoothOff, unauthorized, searching, connecting, initializing, waitingForCar, polling, carOff
+        /// This device is set not to use the adapter (it only views trips).
+        case adapterOff
+        /// No adapter yet; pairing waits for "Find adapter" in Settings.
+        case notPaired
 
         var label: String {
             switch self {
@@ -32,6 +36,8 @@ final class LoggerEngine {
             case .waitingForCar: return "Adapter ready, ignition off"
             case .polling: return "Live"
             case .carOff: return "Car not answering"
+            case .adapterOff: return "Adapter not used on this device"
+            case .notPaired: return "No adapter yet: Settings › Adapter"
             }
         }
     }
@@ -63,6 +69,8 @@ final class LoggerEngine {
     private let location = LocationRecorder()
     private let activity = CoolantActivityController()
     @ObservationIgnored private var tripEndTask: Task<Void, Never>?
+    /// Set by "Find adapter": scanning for an unknown adapter only happens on request.
+    @ObservationIgnored private var pairingRequested = false
     @ObservationIgnored private var lastActivityPush = Date.distantPast
 
     init(settings: AppSettings, trips: TripStore) {
@@ -81,6 +89,12 @@ final class LoggerEngine {
             simulator = sim
             adapterName = "Simulated car"
             begin(sim)
+        } else if !settings.data.useAdapter {
+            link = .adapterOff
+        } else if settings.data.adapterID == nil && !pairingRequested {
+            // A device that has never paired doesn't grab the first adapter it hears: with
+            // the app on both the iPad and the iPhone, only the logger should hold it.
+            link = .notPaired
         } else {
             let transport = BLEAdapterTransport(rememberedID: settings.data.adapterID.flatMap(UUID.init(uuidString:)))
             transport.onEvent = { [weak self] event in
@@ -106,7 +120,20 @@ final class LoggerEngine {
         start()
     }
 
+    /// Looks for an adapter to pair with (the first one in range that looks like an OBD adapter).
+    func findAdapter() {
+        pairingRequested = true
+        restart()
+    }
+
+    /// Turns this device's use of the adapter on or off (off: it only views trips).
+    func setUseAdapter(_ on: Bool) {
+        settings.update { $0.useAdapter = on }
+        restart()
+    }
+
     func forgetAdapter() {
+        pairingRequested = false
         ble?.forget()
         settings.update {
             $0.adapterID = nil
@@ -252,7 +279,7 @@ final class LoggerEngine {
         tripEndTask?.cancel()
         let window = settings.data.mergeWindowMinutes * 60
         var rec: TripRecorder?
-        if let last = trips.trips.first, let end = last.meta.endedAt ?? Self.lastWrite(last.directory),
+        if let last = trips.trips.first(where: { !$0.meta.isImported }), let end = last.meta.endedAt ?? Self.lastWrite(last.directory),
            now.timeIntervalSince(end) < window, (last.meta.notes?.contains("Simulated") == true) == isDemo {
             rec = try? TripRecorder.resume(directory: last.directory, at: now, traceEnabled: settings.data.saveTrace)
             if let s = last.meta.summary { derived.resume(distanceKm: s.distanceKm, fuelLiters: s.fuelLiters) }

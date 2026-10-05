@@ -10,11 +10,13 @@ final class AppModel {
     let settings: AppSettings
     let trips: TripStore
     let engine: LoggerEngine
+    let importer: TripImporter
 
     private init() {
         settings = AppSettings()
         trips = TripStore()
         engine = LoggerEngine(settings: settings, trips: trips)
+        importer = TripImporter(store: trips, settings: settings)
     }
 }
 
@@ -68,6 +70,7 @@ struct OBDLoggerApp: App {
                 .environment(model.engine)
                 .environment(model.settings)
                 .environment(model.trips)
+                .environment(model.importer)
                 .preferredColorScheme(.dark)
                 .tint(Palette.skyBlue)
         }
@@ -75,6 +78,7 @@ struct OBDLoggerApp: App {
             if phase == .active {
                 model.engine.appBecameActive()
                 model.trips.refresh()
+                model.importer.appBecameActive()
             }
         }
     }
@@ -82,6 +86,7 @@ struct OBDLoggerApp: App {
 
 struct RootView: View {
     @Environment(LoggerEngine.self) private var engine
+    @Environment(TripImporter.self) private var importer
     @State private var tab = LaunchOptions.current.tab ?? 0
 
     var body: some View {
@@ -101,6 +106,12 @@ struct RootView: View {
         // Keep the screen on while the car is answering (the iPad is the dashboard).
         .onChange(of: engine.link) { _, link in
             UIApplication.shared.isIdleTimerDisabled = link == .polling
+        }
+        // A CSV sent here from another app (Files, Car Scanner's Share › CSV): import it.
+        .onOpenURL { url in
+            guard url.isFileURL else { return }
+            tab = 1
+            Task { await importer.importFiles([url]) }
         }
     }
 }

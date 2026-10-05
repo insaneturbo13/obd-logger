@@ -104,6 +104,35 @@ display and exports.
 - **InfluxDB 2.x**: line protocol, measurement `trip`, tags `vehicle`, `trip_id`,
   `source=obdlogger`, one field per signal (stored units), millisecond timestamps.
 
+## Import
+
+Trips recorded on another device reach this one through CSV files (`TripImport` in OBDKit,
+`TripImporter` in the app). Each file becomes an ordinary trip folder, marked with
+`importedFrom` in `meta.json`; an imported trip is never resumed, exported or uploaded
+again, since its source already has it.
+
+| File | Read as |
+|---|---|
+| `<trip>-raw.csv` (this app) | every reading, exact; preferred when both exports of a trip are there |
+| `<trip>.csv` (this app, table) | display units converted back; a repeated value kept once a second |
+| `YYYY-MM-DD HH-MM-SS.csv` (Car Scanner) | time of day from each row, date from the name, clock in the device's time zone; columns mapped to signal IDs by name and unit, Car Scanner's running totals, averages and prices left out, anything else kept under `cs_<name>` |
+
+Table-style files repeat each value until a new one arrives (Car Scanner without any
+limit, so a frozen adapter looks like steady data). The import keeps every change plus one
+repeat per second while a value holds, which keeps charts and trip totals right without
+pretending the repeats are readings; the trip's notes say so.
+
+Sources: files picked in the Files app, a CSV sent with Share › Open in, or a linked folder
+checked when the app opens (subfolders included, so exports another tool has filed away in
+a subfolder are still found). Trip IDs come from file names, so a trip already on the device is skipped
+without downloading it; anything else is read through a file coordinator, which makes
+iCloud Drive fetch files that are only placeholders.
+
+A device that only views trips can turn off **Use the adapter on this device**. The adapter
+takes one connection at a time and the app keeps a standing connection to a paired
+adapter, so two devices with the app would race for it at every start. A device that has
+never paired doesn't scan until **Find adapter** is tapped.
+
 ## Background operation
 
 - `bluetooth-central`: the app gets Bluetooth notifications in the background. The

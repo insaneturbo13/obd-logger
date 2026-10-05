@@ -1,17 +1,25 @@
 import OBDKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct TripsView: View {
     @Environment(TripStore.self) private var store
     @Environment(LoggerEngine.self) private var engine
     @Environment(AppSettings.self) private var settings
+    @Environment(TripImporter.self) private var importer
     @State private var pendingDelete: TripStore.Entry?
+    @State private var picking = false
+    /// One file importer serves both buttons (SwiftUI shows only one per view): files or a folder.
+    @State private var pickingFolder = false
 
     var body: some View {
         NavigationStack {
             List {
+                if importer.isRunning || importer.status != nil {
+                    ImportStatusRow()
+                }
                 if store.trips.isEmpty {
-                    Text("Trips record automatically when the car answers. They're saved on this device under Files › On My iPad › OBD Logger › Trips.")
+                    Text("Trips record automatically when the car answers. They're saved on this device under Files › On My iPad › OBD Logger › Trips. Trips recorded on another device, or by Car Scanner, come in through Import at the top right.")
                         .foregroundStyle(Palette.textSecondary)
                 }
                 ForEach(store.trips) { entry in
@@ -31,7 +39,23 @@ struct TripsView: View {
             .navigationDestination(for: String.self) { id in
                 if let entry = store.entry(id: id) { TripDetailView(entry: entry) }
             }
-            .refreshable { store.refresh() }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) { importMenu }
+            }
+            .fileImporter(isPresented: $picking,
+                          allowedContentTypes: pickingFolder ? [UTType.folder] : [UTType.commaSeparatedText, UTType.plainText],
+                          allowsMultipleSelection: !pickingFolder) { result in
+                guard case .success(let urls) = result else { return }
+                if pickingFolder {
+                    if let url = urls.first { importer.linkFolder(url) }
+                } else {
+                    Task { await importer.importFiles(urls) }
+                }
+            }
+            .refreshable {
+                store.refresh()
+                await importer.checkLinkedFolder()
+            }
             .confirmationDialog("Delete this trip?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
                                 titleVisibility: .visible) {
                 Button("Delete", role: .destructive) {
@@ -42,6 +66,58 @@ struct TripsView: View {
                 Text("Its recording is removed from this device. Copies already exported elsewhere stay.")
             }
         }
+    }
+
+    private var importMenu: some View {
+        Menu {
+            Button {
+                pickingFolder = false
+                picking = true
+            } label: {
+                Label("Import CSV files…", systemImage: "doc.badge.plus")
+            }
+            if let name = settings.data.importFolderName {
+                Button {
+                    Task { await importer.checkLinkedFolder() }
+                } label: {
+                    Label("Check \(name) now", systemImage: "arrow.triangle.2.circlepath")
+                }
+            } else {
+                Button {
+                    pickingFolder = true
+                    picking = true
+                } label: {
+                    Label("Link a folder to import from…", systemImage: "folder.badge.plus")
+                }
+            }
+        } label: {
+            Label("Import", systemImage: "square.and.arrow.down")
+        }
+        .disabled(importer.isRunning)
+    }
+}
+
+/// Progress and outcome of the last import, above the trip list.
+struct ImportStatusRow: View {
+    @Environment(TripImporter.self) private var importer
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            if importer.isRunning {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: "square.and.arrow.down").foregroundStyle(Palette.skyBlue)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                if importer.isRunning, let p = importer.progress {
+                    Text("Importing \(p.done) of \(p.total)…").font(.subheadline.monospacedDigit()).foregroundStyle(Palette.text)
+                }
+                if let status = importer.status {
+                    Text(status).font(.subheadline).foregroundStyle(Palette.textSecondary)
+                }
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -79,6 +155,10 @@ struct TripRow: View {
                 .foregroundStyle(Palette.textSecondary)
             }
             HStack(spacing: 10) {
+                if m.isImported {
+                    Label(m.notes?.contains("Car Scanner") == true ? "from Car Scanner" : "imported",
+                          systemImage: "square.and.arrow.down").font(.caption2)
+                }
                 if m.exportedAt != nil { Label("exported", systemImage: "folder").font(.caption2) }
                 if m.uploadedAt != nil { Label("uploaded", systemImage: "icloud.and.arrow.up").font(.caption2) }
                 if let n = m.notes, n.contains("failed") { Text(n).font(.caption2).foregroundStyle(Palette.yellow).lineLimit(2) }
@@ -121,10 +201,11 @@ struct TripDetailView: View {
                 if let wide = files?.wide { ShareLink(item: wide) { Label("Share CSV", systemImage: "tablecells") } }
                 if let raw = files?.raw { ShareLink(item: raw) { Label("Share raw CSV", systemImage: "list.bullet.rectangle") } }
                 Menu {
+                    // An imported trip already exists where it came from; sending it back would duplicate it.
                     Button("Export to folder") { Task { await export() } }
-                        .disabled(settings.data.exportFolderBookmark == nil)
+                        .disabled(settings.data.exportFolderBookmark == nil || entry.meta.isImported)
                     Button("Upload to InfluxDB") { Task { await upload() } }
-                        .disabled(!settings.data.influxEnabled)
+                        .disabled(!settings.data.influxEnabled || entry.meta.isImported)
                 } label: { Image(systemName: "square.and.arrow.up.on.square") }
                 .disabled(trip == nil || busy)
             }
@@ -196,6 +277,9 @@ struct TripDetailView: View {
                 stat("Longest engine-speed gap", String(format: "%.1f s", s.longestRPMGap))
             }
             if let adapter = trip.meta.adapter { Text(adapter).font(.caption).foregroundStyle(Palette.textTertiary) }
+            if trip.meta.isImported, let notes = trip.meta.notes {
+                Text(notes).font(.caption).foregroundStyle(Palette.textTertiary)
+            }
         }
     }
 

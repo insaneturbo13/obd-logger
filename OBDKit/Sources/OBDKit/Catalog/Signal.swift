@@ -21,6 +21,8 @@ public enum SignalCategory: String, Codable, Sendable, CaseIterable {
 
 public enum SignalSource: String, Codable, Sendable {
     case standard, profile, derived, gps, adapter
+    /// A column of an imported file with no counterpart here (kept under its own name).
+    case imported
 }
 
 public struct SignalInfo: Codable, Sendable, Equatable {

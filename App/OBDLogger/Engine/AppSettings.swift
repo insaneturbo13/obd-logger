@@ -31,6 +31,11 @@ struct SettingsData: Codable, Equatable {
     var exportFolderBookmark: Data?
     var exportFolderName: String?
 
+    // Import: a folder checked for trips exported by another device (or Car Scanner)
+    var importFolderBookmark: Data?
+    var importFolderName: String?
+    var importOnOpen = true
+
     // InfluxDB 2.x upload (token lives in the Keychain)
     var influxEnabled = false
     var influxURL = ""
@@ -41,6 +46,9 @@ struct SettingsData: Codable, Equatable {
     // Adapter
     var adapterID: String?
     var adapterName: String?
+    /// Off on a device that only views trips (the adapter takes one connection at a time,
+    /// so a second device holding a standing connection would compete with the logger).
+    var useAdapter = true
     var demoMode = false
 
     var overrides = PollOverrides()

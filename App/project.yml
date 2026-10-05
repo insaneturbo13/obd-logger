@@ -66,6 +66,14 @@ targets:
         NSSupportsLiveActivitiesFrequentUpdates: true
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        # Lists the app under Share › Open in for CSV files, so a Car Scanner export (or a
+        # trip exported on another device) can be sent straight to the importer.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Trip CSV
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.comma-separated-values-text
         ITSAppUsesNonExemptEncryption: false
         UIStatusBarStyle: UIStatusBarStyleLightContent
     settings:

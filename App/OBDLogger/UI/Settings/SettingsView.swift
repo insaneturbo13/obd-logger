@@ -5,7 +5,12 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(LoggerEngine.self) private var engine
+    @Environment(TripImporter.self) private var importer
     @State private var pickingFolder = false
+    /// One folder picker serves both folder settings (SwiftUI shows only one per view).
+    @State private var folderFor: FolderUse = .export
+
+    private enum FolderUse { case export, importFrom }
     @State private var token = Keychain.get(Exporter.tokenAccount) ?? ""
     @State private var influxStatus: String?
     @State private var confirmForget = false
@@ -18,6 +23,7 @@ struct SettingsView: View {
                 coolant
                 fuel
                 export
+                importing
                 influx
                 adapter
                 about
@@ -26,11 +32,17 @@ struct SettingsView: View {
             .background(Palette.background)
             .navigationTitle("Settings")
             .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder]) { result in
-                if case .success(let url) = result, let bookmark = try? Exporter.bookmark(for: url) {
-                    settings.update {
-                        $0.exportFolderBookmark = bookmark
-                        $0.exportFolderName = url.lastPathComponent
+                guard case .success(let url) = result else { return }
+                switch folderFor {
+                case .export:
+                    if let bookmark = try? Exporter.bookmark(for: url) {
+                        settings.update {
+                            $0.exportFolderBookmark = bookmark
+                            $0.exportFolderName = url.lastPathComponent
+                        }
                     }
+                case .importFrom:
+                    importer.linkFolder(url)
                 }
             }
         }
@@ -108,7 +120,10 @@ struct SettingsView: View {
 
     private var export: some View {
         Section {
-            Button(settings.data.exportFolderName.map { "Folder: \($0)" } ?? "Choose export folder…") { pickingFolder = true }
+            Button(settings.data.exportFolderName.map { "Folder: \($0)" } ?? "Choose export folder…") {
+                folderFor = .export
+                pickingFolder = true
+            }
             if settings.data.exportFolderBookmark != nil {
                 Button("Stop exporting to a folder", role: .destructive) {
                     settings.update {
@@ -124,6 +139,28 @@ struct SettingsView: View {
             Text("Export after each trip")
         } footer: {
             Text("Pick a folder in iCloud Drive, Google Drive, OneDrive or on the device; its app syncs it. In the table CSV a value is only repeated while it's fresh, so a stalled sensor shows as empty cells, never as a steady reading.")
+        }
+    }
+
+    private var importing: some View {
+        Section {
+            Button(settings.data.importFolderName.map { "Folder: \($0)" } ?? "Link a folder to import from…") {
+                folderFor = .importFrom
+                pickingFolder = true
+            }
+            if settings.data.importFolderBookmark != nil {
+                Toggle("Check it whenever the app opens", isOn: settings.binding(\.importOnOpen))
+                Button("Check now") { Task { await importer.checkLinkedFolder() } }
+                    .disabled(importer.isRunning)
+                Button("Stop importing from this folder", role: .destructive) { importer.unlinkFolder() }
+            }
+            if let status = importer.status {
+                Text(status).font(.caption).foregroundStyle(Palette.textSecondary)
+            }
+        } header: {
+            Text("Import trips")
+        } footer: {
+            Text("Link the folder another device exports into (the iPad's export folder) to see its trips here; subfolders are included. Reads this app's raw or table CSVs and Car Scanner's CSV exports, and skips trips already on this device. Files in iCloud Drive download on first import: Car Scanner exports are several MB each. Single files can also be imported from the Trips tab or sent here with Share › Open in OBD Logger.")
         }
     }
 
@@ -165,7 +202,13 @@ struct SettingsView: View {
 
     private var adapter: some View {
         Section {
+            Toggle("Use the adapter on this device", isOn: Binding(get: { settings.data.useAdapter },
+                                                                    set: { engine.setUseAdapter($0) }))
             LabeledContent("Adapter", value: settings.data.adapterName ?? "none yet")
+            if settings.data.useAdapter && settings.data.adapterID == nil && !settings.data.demoMode {
+                Button("Find adapter") { engine.findAdapter() }
+                    .disabled(engine.link == .searching || engine.link == .connecting)
+            }
             if let info = engine.adapterInfo {
                 LabeledContent("Reports", value: info.identity)
                 LabeledContent("Protocol", value: info.protocolName)
@@ -180,12 +223,12 @@ struct SettingsView: View {
         } header: {
             Text("Adapter")
         } footer: {
-            Text("The adapter accepts one connection at a time: close other OBD apps first. Demo mode runs a pretend car so the app can be tried without one; its trips are marked as demo and never exported.")
+            Text("The adapter accepts one connection at a time: close other OBD apps first. With the app on two devices, turn the adapter off on the one that only views trips, or the two will compete for it at every start. Find adapter pairs with the first OBD adapter in range. Demo mode runs a pretend car so the app can be tried without one; its trips are marked as demo and never exported.")
         }
         .confirmationDialog("Forget the adapter?", isPresented: $confirmForget) {
             Button("Forget", role: .destructive) { engine.forgetAdapter() }
         } message: {
-            Text("The app will look for an adapter again.")
+            Text("Use Find adapter to pair one again.")
         }
     }
 

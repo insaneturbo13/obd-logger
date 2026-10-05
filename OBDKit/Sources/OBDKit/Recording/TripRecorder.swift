@@ -21,6 +21,13 @@ public struct TripMeta: Codable, Sendable, Equatable {
     public var exportedAt: Date?
     public var uploadedAt: Date?
     public var notes: String?
+    /// Set for a trip read in from a CSV export (another device's, or Car Scanner's) rather
+    /// than recorded here: the file it came from and when. Such a trip is never resumed,
+    /// exported or uploaded again; its source already has it.
+    public var importedFrom: String?
+    public var importedAt: Date?
+
+    public var isImported: Bool { importedFrom != nil }
 
     public init(id: String, startedAt: Date, appVersion: String, adapter: String? = nil, protocolName: String? = nil,
                 profileID: String? = nil, signals: [SignalInfo] = []) {

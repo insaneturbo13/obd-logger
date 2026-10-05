@@ -23,6 +23,9 @@ ELM327-style adapter, built to be a dependable everyday logger:
   Activity on the lock screen with a configurable alert point.
 - CSV export into any Files-app folder (iCloud Drive, Google Drive, OneDrive), optional
   InfluxDB upload, trouble-code reading.
+- Import of trips recorded elsewhere: this app's CSV exports from another device (link the
+  shared export folder and the iPhone shows what the iPad recorded) and Car Scanner's CSV
+  exports, picked in Files, sent with Share › Open in, or picked up from the linked folder.
 
 Status: early. The protocol core is tested against recordings from a real adapter; the app
 has not yet been driven.

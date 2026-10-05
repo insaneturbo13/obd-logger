@@ -26,11 +26,7 @@ enum Exporter {
     }
 
     static func infos(for trip: TripData) -> [SignalID: SignalInfo] {
-        var infos: [SignalID: SignalInfo] = [:]
-        for i in StandardPIDs.signalInfos + DerivedSignals.infos + GPSSignals.infos + AdapterSignals.infos { infos[i.id] = i }
-        for p in BuiltInProfiles.all { for s in p.sensors { infos[s.signalID] = s.info } }
-        for i in trip.meta.signals { infos[i.id] = i }
-        return infos
+        SignalCatalog.infos(for: trip)
     }
 
     struct Files: Sendable {
