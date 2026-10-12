@@ -106,3 +106,24 @@ jobs:
           name: testflight-logs
           path: App/archive.log
           if-no-files-found: ignore
+
+  # Hands the new build to the internal TestFlight group once Apple has processed it.
+  # Runs on Linux: waiting on macOS would burn minutes at 10x.
+  distribute:
+    needs: upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "pyjwt[crypto]"
+      - name: Add the build to the internal testers
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          echo "${{ secrets.ASC_KEY_P8_BASE64 }}" | base64 --decode > "$ASC_KEY_PATH"
+          python3 tools/asc_distribute.py "${{ vars.BUNDLE_ID_PREFIX }}.obdlogger" "${{ github.run_number }}"

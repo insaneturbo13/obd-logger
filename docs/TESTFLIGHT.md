@@ -60,8 +60,10 @@ Actions → **TestFlight** → Run workflow. About 10 minutes to build; Apple th
 the build for 5–30 minutes.
 
 App Store Connect → your app → TestFlight → Internal Testing → **+** create a group, add
-yourself. Install the **TestFlight** app on the iPad and accept the invite. Later builds
-appear there automatically.
+yourself. Install the **TestFlight** app on the iPad and accept the invite. After each
+upload the workflow's `distribute` job waits for Apple to finish processing and adds the
+build to every internal group, so later builds show up in TestFlight without a trip to
+App Store Connect.
 
 Each run numbers its build from the workflow run number. Tags starting with `v` (e.g.
 `v0.1.0`) also trigger an upload.
