@@ -69,6 +69,18 @@ struct StatusBar: View {
                         .font(.subheadline.monospacedDigit().weight(.semibold))
                         .foregroundStyle(Palette.vermillion)
                 }
+                Button { engine.stopTrip() } label: {
+                    Label("Stop", systemImage: "stop.fill").font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .tint(Palette.vermillion)
+                .accessibilityHint("Ends and saves this trip")
+            } else if engine.canRecord {
+                Button { engine.recordTrip() } label: {
+                    Label("Record", systemImage: "record.circle").font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .tint(Palette.vermillion)
             }
             Spacer()
             if engine.link == .polling {
@@ -86,9 +98,6 @@ struct StatusBar: View {
             Menu {
                 Button("Coolant top-up") { engine.addNote("coolant top-up") }
                 Button("Note…") { askingNote = true }
-                if engine.activeTrip != nil {
-                    Button("End trip now", role: .destructive) { engine.finishTrip(reason: "ended by user") }
-                }
             } label: {
                 Image(systemName: "bookmark").font(.title3)
             }
