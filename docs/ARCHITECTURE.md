@@ -117,6 +117,14 @@ Core Motion reports gravity minus the device's acceleration (lying face up reads
 z), so its `userAcceleration` points opposite to the way the device speeds up;
 `MotionRecorder` negates it, and `phone_accel_*` are + along the axis the device speeds up in.
 
+Core Motion stamps readings in seconds since boot, and Apple doesn't say whether that clock
+runs while the device sleeps, so converting through the system's uptime can be off by hours.
+Each stream is anchored on when its readings arrive instead (`SensorClock`). As a backstop,
+`LoggerEngine` drops device readings stamped more than 2 minutes before or 5 seconds after
+they arrive, and `TripData.load` leaves out readings from more than an hour before the trip
+started or after `samples.csv` was last written (the trip screen says how many): one wild
+timestamp would otherwise stretch the trip, and every export that walks it, by hours.
+
 A mean alone would smooth a bump away, so the peak is kept; a jolt of 4 m/s² (0.4 g) or
 more is also written to the trip's events as `bump` with its peak and the road speed, at
 most one every 2 s, and only while the car is rolling (handling the device at a stop or

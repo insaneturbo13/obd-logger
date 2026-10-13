@@ -257,11 +257,15 @@ final class LoggerEngine {
         pushActivityIfDue()
     }
 
-    /// GPS and the device's own motion sensors and barometer.
+    /// GPS and the device's own motion sensors and barometer. Readings stamped far from now are
+    /// dropped: one bad timestamp would stretch the trip and every export that walks it.
     private func ingestDevice(_ samples: [Sample]) {
         guard recorder != nil else { return }
-        recorder?.record(samples)
-        live.ingest(samples)
+        let now = Date()
+        let timely = samples.filter { $0.time > now.addingTimeInterval(-120) && $0.time < now.addingTimeInterval(5) }
+        guard !timely.isEmpty else { return }
+        recorder?.record(timely)
+        live.ingest(timely)
     }
 
     /// A large bump becomes a trip event only while the car is rolling: handling the device at a

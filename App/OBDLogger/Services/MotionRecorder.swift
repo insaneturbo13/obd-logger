@@ -20,18 +20,20 @@ final class MotionRecorder {
         q.maxConcurrentOperationCount = 1
         return q
     }()
-    /// Touched only on `queue`.
-    private final class Box: @unchecked Sendable { var averager = MotionAverager() }
+    /// Touched only on `queue`. Each stream gets its own clock: Core Motion's timestamps count
+    /// from boot on a clock that may not match the system's uptime, so they're anchored on
+    /// arrival instead (`SensorClock`).
+    private final class Box: @unchecked Sendable {
+        var averager = MotionAverager()
+        var motionClock = SensorClock()
+        var relativeClock = SensorClock()
+        var absoluteClock = SensorClock()
+    }
     private var box = Box()
 
     var onSamples: (([Sample]) -> Void)?
     var onBump: ((MotionAverager.Bump) -> Void)?
     private(set) var running = false
-
-    /// Core Motion stamps readings with seconds since boot; this turns one into a Date.
-    nonisolated private static func date(uptime: TimeInterval) -> Date {
-        Date(timeIntervalSinceNow: uptime - ProcessInfo.processInfo.systemUptime)
-    }
 
     func start() {
         guard !running else { return }
@@ -49,7 +51,7 @@ final class MotionRecorder {
                 // speeds up. Negated here so + means accelerating along that axis.
                 let a = m.userAcceleration
                 let reading = MotionAverager.Reading(
-                    time: Self.date(uptime: m.timestamp),
+                    time: box.motionClock.date(sensorTime: m.timestamp, arrived: Date()),
                     gravity: Vec3(m.gravity.x, m.gravity.y, m.gravity.z),
                     acceleration: Vec3(-a.x, -a.y, -a.z),
                     rotation: Vec3(m.rotationRate.x, m.rotationRate.y, m.rotationRate.z))
@@ -67,7 +69,7 @@ final class MotionRecorder {
         if CMAltimeter.isRelativeAltitudeAvailable() {
             altimeter.startRelativeAltitudeUpdates(to: queue) { @Sendable [weak self] data, _ in
                 guard let data else { return }
-                let t = Self.date(uptime: data.timestamp)
+                let t = box.relativeClock.date(sensorTime: data.timestamp, arrived: Date())
                 let samples = [Sample(PhoneSignals.relativeAltitude, data.relativeAltitude.doubleValue, t),
                                Sample(PhoneSignals.pressure, data.pressure.doubleValue, t)]
                 Task { @MainActor in self?.onSamples?(samples) }
@@ -76,7 +78,8 @@ final class MotionRecorder {
         if CMAltimeter.isAbsoluteAltitudeAvailable() {
             altimeter.startAbsoluteAltitudeUpdates(to: queue) { @Sendable [weak self] data, _ in
                 guard let data, data.accuracy >= 0 else { return }
-                let sample = Sample(PhoneSignals.altitude, data.altitude, Self.date(uptime: data.timestamp))
+                let t = box.absoluteClock.date(sensorTime: data.timestamp, arrived: Date())
+                let sample = Sample(PhoneSignals.altitude, data.altitude, t)
                 Task { @MainActor in self?.onSamples?([sample]) }
             }
         }

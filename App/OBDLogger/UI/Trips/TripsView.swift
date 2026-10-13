@@ -213,16 +213,17 @@ struct TripDetailView: View {
         .task { await load() }
     }
 
+    /// Shows the trip as soon as it's read; the CSV files for sharing follow.
     private func load() async {
         let dir = entry.directory
         let snapshot = settings.data
-        let result = await Task.detached(priority: .userInitiated) { () -> (TripData?, Exporter.Files?) in
-            guard let t = try? TripData.load(dir) else { return (nil, nil) }
-            return (t, try? Exporter.shareFiles(t, settings: snapshot))
-        }.value
-        trip = result.0
-        files = result.1
-        if trip == nil { message = "This trip couldn't be read." }
+        let loaded = await Task.detached(priority: .userInitiated) { try? TripData.load(dir) }.value
+        trip = loaded
+        guard let loaded else {
+            message = "This trip couldn't be read."
+            return
+        }
+        files = await Task.detached(priority: .utility) { try? Exporter.shareFiles(loaded, settings: snapshot) }.value
     }
 
     private func export() async {
@@ -279,6 +280,10 @@ struct TripDetailView: View {
             if let adapter = trip.meta.adapter { Text(adapter).font(.caption).foregroundStyle(Palette.textTertiary) }
             if trip.meta.isImported, let notes = trip.meta.notes {
                 Text(notes).font(.caption).foregroundStyle(Palette.textTertiary)
+            }
+            if trip.discardedReadings > 0 {
+                Text("\(trip.discardedReadings) readings with impossible times (long before the trip, or after it was saved) were left out.")
+                    .font(.caption).foregroundStyle(Palette.textTertiary)
             }
         }
     }

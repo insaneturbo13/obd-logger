@@ -54,6 +54,32 @@ final class MotionAveragerTests: XCTestCase {
     }
 }
 
+final class SensorClockTests: XCTestCase {
+    func testAnchorsOnArrivalWhateverTheSensorsClockBase() {
+        var clock = SensorClock()
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        // The sensor's clock is five days off the system's; deliveries arrive 2-40 ms late.
+        let base = 5 * 86400.0
+        var worst = 0.0
+        for i in 0..<500 {
+            let real = now.addingTimeInterval(Double(i) * 0.02)
+            let delay = 0.002 + Double((i * 7919) % 39) / 1000
+            let d = clock.date(sensorTime: real.timeIntervalSince1970 - base, arrived: real.addingTimeInterval(delay))
+            if i >= 20 { worst = max(worst, abs(d.timeIntervalSince(real))) }
+        }
+        XCTAssertLessThan(worst, 0.005)
+    }
+
+    func testReanchorsWhenTheSensorsClockJumps() {
+        var clock = SensorClock()
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        _ = clock.date(sensorTime: 100, arrived: now)
+        // The sensor's clock jumps back by an hour (a new clock base): the dates stay right.
+        let d = clock.date(sensorTime: 101 - 3600, arrived: now.addingTimeInterval(1))
+        XCTAssertEqual(d.timeIntervalSince(now), 1, accuracy: 1e-6)
+    }
+}
+
 final class MountCalibrationTests: XCTestCase {
     let t0 = Date(timeIntervalSince1970: 1_790_000_000)
 
