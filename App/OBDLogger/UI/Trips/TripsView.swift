@@ -217,12 +217,22 @@ struct TripDetailView: View {
     private func load() async {
         let dir = entry.directory
         let snapshot = settings.data
-        let loaded = await Task.detached(priority: .userInitiated) { try? TripData.load(dir) }.value
+        let loaded = await Task.detached(priority: .userInitiated) { () -> TripData? in
+            guard var t = try? TripData.load(dir) else { return nil }
+            // Readings with impossible times were left out: the saved summary still counts them
+            // (a trip "26 years" long), so save it again from what's left.
+            if t.discardedReadings > 0 {
+                t.meta.summary = t.summarize()
+                try? TripFiles.writeMeta(t.meta, to: dir)
+            }
+            return t
+        }.value
         trip = loaded
         guard let loaded else {
             message = "This trip couldn't be read."
             return
         }
+        if loaded.discardedReadings > 0 { store.refresh() }
         files = await Task.detached(priority: .utility) { try? Exporter.shareFiles(loaded, settings: snapshot) }.value
     }
 

@@ -117,9 +117,11 @@ Core Motion reports gravity minus the device's acceleration (lying face up reads
 z), so its `userAcceleration` points opposite to the way the device speeds up;
 `MotionRecorder` negates it, and `phone_accel_*` are + along the axis the device speeds up in.
 
-Core Motion stamps readings in seconds since boot, and Apple doesn't say whether that clock
-runs while the device sleeps, so converting through the system's uptime can be off by hours.
-Each stream is anchored on when its readings arrive instead (`SensorClock`). As a backstop,
+Core Motion's timestamps can't be trusted to share one clock: device motion and relative
+altitude count seconds since boot, but on the first real drive (iOS, 2026-10-13) absolute
+altitude's turned out to count from 2001, so converting it through the system's uptime dated
+those readings in 2052. Each stream is anchored on when its readings arrive instead
+(`SensorClock`). As a backstop,
 `LoggerEngine` drops device readings stamped more than 2 minutes before or 5 seconds after
 they arrive, and `TripData.load` leaves out readings from more than an hour before the trip
 started or after `samples.csv` was last written (the trip screen says how many): one wild
