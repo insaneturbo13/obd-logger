@@ -67,6 +67,7 @@ final class LoggerEngine {
     private let slot = RecorderSlot()
     @ObservationIgnored private var derived = DerivedSignals()
     private let location = LocationRecorder()
+    private let motion = MotionRecorder()
     private let activity = CoolantActivityController()
     @ObservationIgnored private var tripEndTask: Task<Void, Never>?
     /// Set by "Find adapter": scanning for an unknown adapter only happens on request.
@@ -76,7 +77,9 @@ final class LoggerEngine {
     init(settings: AppSettings, trips: TripStore) {
         self.settings = settings
         self.trips = trips
-        location.onSamples = { [weak self] samples in self?.ingestGPS(samples) }
+        location.onSamples = { [weak self] samples in self?.ingestDevice(samples) }
+        motion.onSamples = { [weak self] samples in self?.ingestDevice(samples) }
+        motion.onBump = { [weak self] bump in self?.recordBump(bump) }
     }
 
     // MARK: connection
@@ -248,10 +251,19 @@ final class LoggerEngine {
         pushActivityIfDue()
     }
 
-    private func ingestGPS(_ samples: [Sample]) {
+    /// GPS and the device's own motion sensors and barometer.
+    private func ingestDevice(_ samples: [Sample]) {
         guard recorder != nil else { return }
         recorder?.record(samples)
         live.ingest(samples)
+    }
+
+    private func recordBump(_ bump: MotionAverager.Bump) {
+        var detail = "peak \(TripFiles.format((bump.peak * 10).rounded() / 10)) m/s²"
+        if let speed = live.current("speed"), abs(speed.time.timeIntervalSince(bump.time)) < 3 {
+            detail += "; speed \(TripFiles.format(speed.value)) km/h"
+        }
+        recorder?.event("bump", detail, at: bump.time)
     }
 
     private func checkCoolant(_ samples: [Sample]) {
@@ -287,7 +299,7 @@ final class LoggerEngine {
         if rec == nil {
             derived = DerivedSignals()
             var signals: [SignalInfo] = plan.map { Array($0.signals.values) } ?? []
-            signals += DerivedSignals.infos + GPSSignals.infos + AdapterSignals.infos
+            signals += DerivedSignals.infos + GPSSignals.infos + PhoneSignals.infos + AdapterSignals.infos
             var meta = TripMeta(id: TripMeta.id(for: now), startedAt: now, appVersion: Self.appVersion,
                                 adapter: [adapterName, adapterInfo?.identity].compactMap { $0 }.joined(separator: ", "),
                                 protocolName: adapterInfo?.protocolName, profileID: settings.data.profileID,
@@ -306,6 +318,7 @@ final class LoggerEngine {
             .compactMap { $0 }.joined(separator: "; "))
         if !isDemo {
             location.start()
+            if settings.data.recordMotion { motion.start() }
             Notifier.requestAuthorization()
         }
         startActivityIfPossible()
@@ -333,6 +346,7 @@ final class LoggerEngine {
         activeTrip = nil
         coolantAlertActive = false
         location.stop()
+        motion.stop()
         activity.end()
         rec.event("trip_end", reason)
         rec.finish(at: rec.lastSampleTime ?? Date())
@@ -341,6 +355,7 @@ final class LoggerEngine {
         let demo = isDemo
         Task.detached(priority: .utility) {
             guard var trip = try? TripData.load(dir) else { return }
+            LoggerEngine.calibrateMount(&trip, dir: dir)
             trip.meta.summary = trip.summarize()
             try? TripFiles.writeMeta(trip.meta, to: dir)
             await MainActor.run { [weak self] in self?.trips.refresh() }
@@ -362,6 +377,7 @@ final class LoggerEngine {
                 let end = trip.end
                 trip.meta.endedAt = end
                 if !trip.meta.segments.isEmpty { trip.meta.segments[trip.meta.segments.count - 1].end = end }
+                LoggerEngine.calibrateMount(&trip, dir: dir)
                 trip.meta.summary = trip.summarize()
                 let meta = trip.meta
                 // Skip a trip that has meanwhile been resumed by a new connection.
@@ -373,6 +389,16 @@ final class LoggerEngine {
                 }
             }
             await MainActor.run { self?.trips.refresh() }
+        }
+    }
+
+    /// Works out the phone's mount and adds pitch, roll, car-frame acceleration, yaw rate and
+    /// road grade to the trip (vehicle-motion.csv), so exports and uploads carry them.
+    nonisolated static func calibrateMount(_ trip: inout TripData, dir: URL) {
+        do {
+            if let summary = try MountCalibration.apply(to: &trip, directory: dir) { trip.meta.motionCalibration = summary }
+        } catch {
+            trip.meta.motionCalibration = "Couldn't save the phone motion: \(error.localizedDescription)"
         }
     }
 

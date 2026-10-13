@@ -8,7 +8,9 @@ Bluetooth LE adapter ──bytes──▶ ELMSession ──replies──▶ Poll
                                   at a time, guard)      CapabilityMap)      ├─ TripRecorder ─▶ Documents/Trips/<id>/
                                                                              ├─ LiveData ─▶ dashboard (10 Hz)
                      iPad GPS (LocationRecorder) ──samples──────────────────▶ ├─ coolant alert, Live Activity
-                                                                             └─ on trip end: CSV export, InfluxDB upload
+       motion + barometer (MotionRecorder, MotionAverager) ──samples, bumps──▶ │
+                                                                             └─ on trip end: MountCalibration, CSV export,
+                                                                                InfluxDB upload
 ```
 
 Everything left of `LoggerEngine` lives in `OBDKit` and is tested without a device:
@@ -88,12 +90,62 @@ Each trip is a folder in `Documents/Trips/` (visible in the Files app):
 | `samples.csv` | `t_ms,signal,value`: every reading with its real time (Unix ms), stored units |
 | `events.csv` | `t_ms,kind,detail`: connected, car offline/online, notes, coolant alerts, codes read |
 | `trace.log` | optional: every adapter command and reply with timings |
+| `vehicle-motion.csv` | pitch, roll, car-frame acceleration, yaw rate and road grade worked out at trip end; same format as `samples.csv`, rewritten whole each time the trip ends |
 
 `samples.csv` is append-only, flushed every second and synced every 5 s. A crash loses at
 most a few seconds; a torn last line is skipped on reading.
 
 Stored units: °C, km/h, kPa, %, V, g/s, rpm, λ. Conversion to °F/mph/AFR happens only for
 display and exports.
+
+## Device motion and barometer
+
+While a trip records, the device's own sensors record alongside the car's (Settings ›
+Recording, on by default). Core Motion's device motion is read at 50 Hz and reduced by
+`MotionAverager` to one set of values per half second, in the device's frame:
+
+| Signal | What |
+|---|---|
+| `phone_gravity_x/y/z` | mean gravity direction (m/s²); the tilt comes from this |
+| `phone_accel_x/y/z` | mean acceleration with gravity removed (m/s²) |
+| `phone_rotation_x/y/z` | mean rotation rate (°/s) |
+| `phone_jolt_peak` | largest acceleration along gravity in the half second (m/s²): bumps and potholes |
+| `phone_vibration_rms` | RMS of the acceleration along gravity (m/s²): how rough the road is |
+| `phone_pressure`, `phone_rel_altitude`, `phone_altitude` | barometer: pressure (kPa), altitude change since recording started and, where the device supports it, absolute altitude (m) |
+
+A mean alone would smooth a bump away, so the peak is kept; a jolt of 4 m/s² (0.4 g) or
+more is also written to the trip's events as `bump` with its peak and the road speed, at
+most one every 2 s. A mount that bounces a little only shakes the acceleration: Core
+Motion's gravity comes from sensor fusion with the gyroscope, not from the raw accelerometer.
+
+At trip end `MountCalibration` turns these into the car's frame and writes
+`vehicle-motion.csv`:
+
+- **Down** is the average gravity direction while the device stayed put. A change of more
+  than 15° (the device moved in its mount, or was picked up) starts a new stretch, each
+  calibrated on its own; stretches under a minute are left out.
+- **Forward** is the direction in which the device's acceleration follows the change of
+  road speed (OBD speed, or GPS speed without it). It needs about 20 s of clear speeding
+  up or slowing down; without that (a steady cruise) only yaw rate is given.
+- **Pitch zero** comes from the barometer: the stretch's pitch is offset so its average
+  matches the average road grade. Without a barometer, pitch is relative to the stretch's
+  average. Roll is always relative (a road's crown leans the car a little all the time).
+
+| Signal | Sign |
+|---|---|
+| `vehicle_pitch` (°) | nose up + |
+| `vehicle_roll` (°) | leaning right + |
+| `vehicle_accel_long` (m/s²) | speeding up + |
+| `vehicle_accel_lat` (m/s²) | toward the right (turning right) + |
+| `vehicle_yaw_rate` (°/s) | turning right + |
+| `road_grade` (%) | uphill in the direction of travel +; barometric altitude change over 80 m of travel, above 15 km/h |
+
+The summary of how the mount was found goes to `meta.json` (`motionCalibration`). A trip
+resumed within the merge window is recalibrated from all its readings when it ends again.
+
+Liquid in the cooling system feels speeding up and braking the way it feels tilt, so for
+questions like an air pocket moving, compare temperatures with both pitch and longitudinal
+acceleration.
 
 ## Exports
 
@@ -139,6 +191,9 @@ never paired doesn't scan until **Find adapter** is tapped.
   adapter always ends a reply with a prompt, so the polling loop is driven by Bluetooth
   events. The remembered adapter has a standing connection request; iOS completes it when
   the adapter powers up and relaunches the app if needed (state restoration).
+- Device motion and the barometer need no background mode of their own: they deliver
+  updates for as long as the app runs, which GPS ensures during a trip. The barometer asks
+  for Motion & Fitness permission the first time; without it, motion still records.
 - `location`: while a trip records, GPS runs with background updates allowed. This keeps
   the app running in front of Maps and adds position/speed to the trip.
 - The Live Activity can only be started while the app is in the foreground; a trip that

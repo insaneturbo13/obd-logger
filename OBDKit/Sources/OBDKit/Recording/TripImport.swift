@@ -618,6 +618,7 @@ enum ImportUnit {
         case "g/sec", "g/s": return (.gramsPerSecond, { $0 })
         case "rpm": return (.rpm, { $0 })
         case "°": return (.degrees, { $0 })
+        case "°/s", "deg/s": return (.degreesPerSecond, { $0 })
         case "hp": return (.kilowatts, { tidy($0 / hpPerKW) })
         case "kw": return (.kilowatts, { $0 })
         case "g": return (.metersPerSecond2, { tidy($0 * standardGravity) })

@@ -302,6 +302,17 @@ struct TripDetailView: View {
             TrendChart(series: series(trip, ["speed", GPSSignals.speed]), unit: p.speed == .mph ? "mph" : "km/h", xDomain: domain)
             TrendChart(series: series(trip, ["rpm"]), unit: "rpm", xDomain: domain, height: 160)
         }
+        let motion: [(SignalID, String)] = [(PhoneSignals.pitch, "°"), (PhoneSignals.grade, "%"), (PhoneSignals.joltPeak, "m/s²")]
+        if motion.contains(where: { trip.series[$0.0] != nil }) {
+            Card(title: "Tilt, grade and bumps") {
+                ForEach(motion.filter { trip.series[$0.0] != nil }, id: \.0) { item in
+                    TrendChart(series: series(trip, [item.0]), unit: item.1, xDomain: domain, height: 140)
+                }
+                if let note = trip.meta.motionCalibration {
+                    Text(note).font(.caption).foregroundStyle(Palette.textTertiary)
+                }
+            }
+        }
     }
 
     private func series(_ trip: TripData, _ ids: [SignalID]) -> [TrendSeries] {

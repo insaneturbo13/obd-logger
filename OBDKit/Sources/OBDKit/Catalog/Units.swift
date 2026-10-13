@@ -5,7 +5,7 @@ public enum BaseUnit: String, Codable, Sendable, CaseIterable {
     case celsius, kmh, kpa, pascal, percent, volts, milliamps, gramsPerSecond, rpm
     case seconds, minutes, km, degrees, lambda, ratio, count, raw, state
     case newtonMeters, litersPerHour, liters, kmPerLiter, kilowatts, metersPerSecond2, meters
-    case coordinate, rpmPerKmh
+    case coordinate, rpmPerKmh, degreesPerSecond
 
     public var symbol: String {
         switch self {
@@ -36,6 +36,7 @@ public enum BaseUnit: String, Codable, Sendable, CaseIterable {
         case .meters: return "m"
         case .coordinate: return ""
         case .rpmPerKmh: return "rpm per km/h"
+        case .degreesPerSecond: return "°/s"
         }
     }
 }
@@ -133,6 +134,7 @@ public enum UnitConverter {
         case .ratio: return dv(value, "", 3)
         case .metersPerSecond2: return dv(value, "m/s²", 2)
         case .coordinate: return dv(value, "", 6)
+        case .degreesPerSecond: return dv(value, "°/s", 1)
         }
     }
 

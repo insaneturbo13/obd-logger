@@ -32,13 +32,15 @@ public struct TripData: Sendable {
 
     public static func load(_ dir: URL) throws -> TripData {
         let meta = try TripFiles.readMeta(dir)
-        let text = (try? String(contentsOf: dir.appendingPathComponent(TripFiles.samples), encoding: .utf8)) ?? ""
         var series: [SignalID: [TimedValue]] = [:]
-        // A line cut short by a crash simply fails to parse and is skipped.
-        for line in text.split(separator: "\n").dropFirst() {
-            let parts = line.split(separator: ",", maxSplits: 2, omittingEmptySubsequences: false)
-            guard parts.count == 3, let ms = Int64(parts[0]), let v = Double(parts[2]) else { continue }
-            series[SignalID(String(parts[1])), default: []].append(TimedValue(Date(timeIntervalSince1970: Double(ms) / 1000), v))
+        for file in [TripFiles.samples, TripFiles.vehicleMotion] {
+            let text = (try? String(contentsOf: dir.appendingPathComponent(file), encoding: .utf8)) ?? ""
+            // A line cut short by a crash simply fails to parse and is skipped.
+            for line in text.split(separator: "\n").dropFirst() {
+                let parts = line.split(separator: ",", maxSplits: 2, omittingEmptySubsequences: false)
+                guard parts.count == 3, let ms = Int64(parts[0]), let v = Double(parts[2]) else { continue }
+                series[SignalID(String(parts[1])), default: []].append(TimedValue(Date(timeIntervalSince1970: Double(ms) / 1000), v))
+            }
         }
         for k in series.keys { series[k]!.sort { $0.time < $1.time } }
         var events: [TripEvent] = []

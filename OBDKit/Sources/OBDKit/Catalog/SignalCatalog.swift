@@ -1,12 +1,14 @@
 import Foundation
 
-/// Every signal the app knows by ID: standard PIDs, derived values, GPS, the adapter's own
-/// reading and the built-in vehicle profiles. A trip can carry more (an imported column with
-/// no counterpart here); those are described in its own meta.json.
+/// Every signal the app knows by ID: standard PIDs, derived values, GPS, the phone's motion
+/// sensors, the adapter's own reading and the built-in vehicle profiles. A trip can carry
+/// more (an imported column with no counterpart here); those are described in its own meta.json.
 public enum SignalCatalog {
     public static let infos: [SignalID: SignalInfo] = {
         var out: [SignalID: SignalInfo] = [:]
-        for i in StandardPIDs.signalInfos + DerivedSignals.infos + GPSSignals.infos + AdapterSignals.infos { out[i.id] = i }
+        let groups: [[SignalInfo]] = [StandardPIDs.signalInfos, DerivedSignals.infos, GPSSignals.infos,
+                                      PhoneSignals.infos, AdapterSignals.infos]
+        for i in groups.joined() { out[i.id] = i }
         for p in BuiltInProfiles.all { for s in p.sensors { out[s.signalID] = s.info } }
         return out
     }()
