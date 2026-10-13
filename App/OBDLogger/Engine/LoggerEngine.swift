@@ -51,6 +51,9 @@ final class LoggerEngine {
     private(set) var activeTrip: TripMeta?
     private(set) var lastMessage: String?
     private(set) var coolantAlertActive = false
+    /// The user stopped the trip: don't start another until they tap Record or the car
+    /// turns off (or the adapter drops).
+    private(set) var recordingPaused = false
     private(set) var isDemo = false
     /// Seconds into the simulated drive at which demo mode starts (screenshots use a warm engine).
     @ObservationIgnored var demoStart: Double = 0
@@ -111,6 +114,7 @@ final class LoggerEngine {
     /// Tears everything down and starts again (after switching demo mode or forgetting the adapter).
     func restart() {
         finishTrip(reason: "restart")
+        recordingPaused = false
         sessionTask?.cancel()
         sessionTask = nil
         if let poller { Task { await poller.stop() } }
@@ -219,6 +223,7 @@ final class LoggerEngine {
         case .vehicle(.offline):
             link = .carOff
             recorder?.event("car_offline")
+            recordingPaused = false
             scheduleTripEnd(after: 30, reason: "ignition off")
         case .stats(let s):
             stats = s
@@ -234,6 +239,7 @@ final class LoggerEngine {
         case .finished(let reason):
             recorder?.event("disconnected", reason)
             if link == .polling || link == .carOff { link = isDemo ? .starting : .connecting }
+            recordingPaused = false
             // A reconnect within the merge window resumes this trip.
             finishTrip(reason: reason)
         }
@@ -242,7 +248,7 @@ final class LoggerEngine {
     // MARK: samples
 
     private func ingest(_ samples: [Sample]) {
-        if recorder == nil && settings.data.autoRecord && link != .carOff { startTrip() }
+        if recorder == nil && settings.data.autoRecord && !recordingPaused && link != .carOff { startTrip() }
         var all = samples
         for s in samples { all += derived.ingest(s) }
         recorder?.record(all)
@@ -293,12 +299,13 @@ final class LoggerEngine {
 
     // MARK: trips
 
-    private func startTrip() {
+    private func startTrip(resume: Bool = true) {
         let now = Date()
         tripEndTask?.cancel()
         let window = settings.data.mergeWindowMinutes * 60
         var rec: TripRecorder?
-        if let last = trips.trips.first(where: { !$0.meta.isImported }), let end = last.meta.endedAt ?? Self.lastWrite(last.directory),
+        if resume, let last = trips.trips.first(where: { !$0.meta.isImported }), last.meta.endedByUser != true,
+           let end = last.meta.endedAt ?? Self.lastWrite(last.directory),
            now.timeIntervalSince(end) < window, (last.meta.notes?.contains("Simulated") == true) == isDemo {
             rec = try? TripRecorder.resume(directory: last.directory, at: now, traceEnabled: settings.data.saveTrace)
             if let s = last.meta.summary { derived.resume(distanceKm: s.distanceKm, fuelLiters: s.fuelLiters) }
@@ -343,7 +350,24 @@ final class LoggerEngine {
         }
     }
 
-    /// Stop recording now (also from the UI).
+    /// The Stop button: saves the trip now and holds off auto-recording until the car
+    /// turns off or the user taps Record.
+    func stopTrip() {
+        guard let rec = recorder else { return }
+        rec.updateMeta { $0.endedByUser = true }
+        finishTrip(reason: "ended by user")
+        recordingPaused = true
+    }
+
+    /// The Record button after a stop: starts a fresh trip right away.
+    func recordTrip() {
+        recordingPaused = false
+        if recorder == nil && link == .polling { startTrip(resume: false) }
+    }
+
+    var canRecord: Bool { recorder == nil && link == .polling }
+
+    /// Stop recording now.
     func finishTrip(reason: String) {
         tripEndTask?.cancel()
         tripEndTask = nil
