@@ -258,11 +258,18 @@ final class LoggerEngine {
         live.ingest(samples)
     }
 
+    /// A large bump becomes a trip event only while the car is rolling: handling the device at a
+    /// stop, or in the 30 s after the ignition goes off, jolts it too.
     private func recordBump(_ bump: MotionAverager.Bump) {
-        var detail = "peak \(TripFiles.format((bump.peak * 10).rounded() / 10)) m/s²"
-        if let speed = live.current("speed"), abs(speed.time.timeIntervalSince(bump.time)) < 3 {
-            detail += "; speed \(TripFiles.format(speed.value)) km/h"
+        guard link == .polling else { return }
+        func fresh(_ id: SignalID) -> Double? {
+            live.current(id).flatMap { abs($0.time.timeIntervalSince(bump.time)) < 3 ? $0.value : nil }
         }
+        let speed = fresh("speed")
+        let rolling = speed.map { $0 > 2 } ?? (fresh(GPSSignals.speed).map { $0 >= 8 } ?? false)
+        guard rolling else { return }
+        var detail = "peak \(TripFiles.format((bump.peak * 10).rounded() / 10)) m/s²"
+        if let speed { detail += "; speed \(TripFiles.format(speed)) km/h" }
         recorder?.event("bump", detail, at: bump.time)
     }
 

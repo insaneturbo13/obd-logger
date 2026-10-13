@@ -20,7 +20,7 @@ public enum PhoneSignals {
     /// RMS of the acceleration along gravity within the half second: how rough the road is.
     public static let vibration: SignalID = "phone_vibration_rms"
     public static let pressure: SignalID = "phone_pressure"
-    /// Barometric altitude change since recording started.
+    /// Barometric altitude change since this connection started (a resumed trip starts again at zero).
     public static let relativeAltitude: SignalID = "phone_rel_altitude"
     /// Absolute altitude from the barometer (devices that support it).
     public static let altitude: SignalID = "phone_altitude"

@@ -8,8 +8,10 @@ import Foundation
 public struct MotionAverager: Sendable {
     public struct Reading: Sendable, Equatable {
         public var time: Date
-        /// Gravity and acceleration (gravity removed) in g, as Core Motion reports them.
+        /// Gravity in g, pointing toward the ground (Core Motion's `gravity`).
         public var gravity: Vec3
+        /// The device's own acceleration in g, + along the axis it speeds up in (Core Motion's
+        /// `userAcceleration` negated).
         public var acceleration: Vec3
         /// Rotation rate in rad/s.
         public var rotation: Vec3

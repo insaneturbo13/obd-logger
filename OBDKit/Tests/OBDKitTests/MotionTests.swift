@@ -95,18 +95,27 @@ final class MountCalibrationTests: XCTestCase {
 
     /// A drive of stop-start cycles over hills, with right and left turns, recorded by a phone
     /// in `mounts` (each used for `minutesEach`), with a few seconds of handling in between.
-    func drive(mounts: [(Vec3) -> Vec3], minutesEach: Double, steady: Bool = false, barometer: Bool = true)
-        -> (TripData, Truth) {
+    /// `flipAcceleration` delivers acceleration with the opposite sign (as if the sensor
+    /// convention were misread); `dropout` (seconds) loses every reading for a while and then
+    /// resumes the trip as a new connection, restarting the barometer's relative altitude.
+    func drive(mounts: [(Vec3) -> Vec3], minutesEach: Double, steady: Bool = false, barometer: Bool = true,
+               flipAcceleration: Bool = false, dropout: ClosedRange<Double>? = nil) -> (TripData, Truth) {
         var series: [SignalID: [TimedValue]] = [:]
         var truth = Truth()
         var noise = Noise()
-        func add(_ id: SignalID, _ t: Date, _ v: Double) { series[id, default: []].append(TimedValue(t, v)) }
+        var lost = false
+        func add(_ id: SignalID, _ t: Date, _ v: Double) {
+            if !lost { series[id, default: []].append(TimedValue(t, v)) }
+        }
         var t = 0.0, s = 0.0, v = 0.0
         let dt = 0.5
         var nextSpeed = 0.0, nextAlt = 0.0
+        var altitudeZero: Double?
         for (mi, mount) in mounts.enumerated() {
             let end = t + minutesEach * 60
             while t < end {
+                lost = dropout?.contains(t) ?? false
+                if let d = dropout, t >= d.upperBound, altitudeZero == nil { altitudeZero = altitude(s) }
                 let cycle = t.truncatingRemainder(dividingBy: 68), k = Int(t / 68)
                 var a = 0.0
                 if steady { v = 20 } else if cycle < 10 { a = 2; v = 2 * cycle } else if cycle < 50 { v = 20 }
@@ -118,7 +127,7 @@ final class MountCalibrationTests: XCTestCase {
                 let date = t0.addingTimeInterval(t)
                 let gravityBody = Vec3(-sin(theta), 0, cos(theta)) * 9.80665
                 let accelBody = Vec3(a + 0.2 * noise.next(), lat + 0.2 * noise.next(), 0.5 * noise.next())
-                let gd = mount(gravityBody), ad = mount(accelBody), wd = mount(Vec3(0, 0, yaw))
+                let gd = mount(gravityBody), ad = mount(accelBody) * (flipAcceleration ? -1 : 1), wd = mount(Vec3(0, 0, yaw))
                 for (ids, vec) in [(PhoneSignals.gravity, gd), (PhoneSignals.acceleration, ad), (PhoneSignals.rotation, wd)] {
                     add(ids[0], date, vec.x); add(ids[1], date, vec.y); add(ids[2], date, vec.z)
                 }
@@ -131,7 +140,8 @@ final class MountCalibrationTests: XCTestCase {
                 while nextSpeed <= t { add("speed", t0.addingTimeInterval(nextSpeed), (v * 3.6).rounded()); nextSpeed += 0.33 }
                 if barometer {
                     while nextAlt <= t {
-                        add(PhoneSignals.relativeAltitude, t0.addingTimeInterval(nextAlt), altitude(s) + 0.1 * noise.next() + t / 3600)
+                        add(PhoneSignals.relativeAltitude, t0.addingTimeInterval(nextAlt),
+                            altitude(s) - (altitudeZero ?? 0) + 0.1 * noise.next() + t / 3600)
                         nextAlt += 1
                     }
                 }
@@ -152,7 +162,11 @@ final class MountCalibrationTests: XCTestCase {
                 nextAlt = t
             }
         }
-        let meta = TripMeta(id: "drive", startedAt: t0, appVersion: "test")
+        var meta = TripMeta(id: "drive", startedAt: t0, appVersion: "test")
+        if let d = dropout {
+            meta.segments[0].end = t0.addingTimeInterval(d.lowerBound)
+            meta.segments.append(TripMeta.Segment(start: t0.addingTimeInterval(d.upperBound), end: nil))
+        }
         return (TripData(meta: meta, series: series), truth)
     }
 
@@ -181,6 +195,8 @@ final class MountCalibrationTests: XCTestCase {
         XCTAssertEqual(result.stretches.count, 1)
         XCTAssertGreaterThan(result.stretches[0].forwardMatch ?? 0, 0.8)
         XCTAssertNotNil(result.stretches[0].pitchOffset)
+        XCTAssertGreaterThan(result.stretches[0].gradeMatch ?? 0, 0.8)
+        XCTAssertFalse(result.stretches[0].tiltFlipped)
 
         let pitch = values(result, PhoneSignals.pitch)
         let moving = pitch.keys.filter { (truth.speed[$0] ?? 0) >= 15 }
@@ -207,6 +223,33 @@ final class MountCalibrationTests: XCTestCase {
         let errors = steady.map { abs(grade[$0]! - truth.grade[$0]!) }.sorted()
         XCTAssertLessThan(errors[errors.count / 2], 0.5)
         XCTAssertTrue(result.summary.contains("pitch zero from barometer"))
+    }
+
+    func testAccelerationWithTheOppositeSignIsCaughtByTheBarometer() {
+        let (trip, truth) = drive(mounts: [Self.mount(yaw: 20, pitch: -12, roll: 5)], minutesEach: 15, flipAcceleration: true)
+        let result = MountCalibration.compute(trip)
+        XCTAssertEqual(result.stretches.count, 1)
+        XCTAssertTrue(result.stretches[0].tiltFlipped)
+        XCTAssertGreaterThan(result.stretches[0].gradeMatch ?? 0, 0.8)
+        let pitch = values(result, PhoneSignals.pitch)
+        let moving = pitch.keys.filter { (truth.speed[$0] ?? 0) >= 15 }
+        XCTAssertLessThan(rms(moving.map { pitch[$0]! - truth.pitch[$0]! }), 0.3)
+        // Acceleration follows the speed changes whatever the sensor's sign.
+        let long = values(result, PhoneSignals.longitudinal)
+        XCTAssertLessThan(rms(long.keys.map { long[$0]! - truth.longitudinal[$0]! }), 0.35)
+        XCTAssertTrue(result.summary.contains("tilt sign turned round"))
+    }
+
+    func testGradeNeverSpansADropoutOrAResume() {
+        // 12 s with no readings at all, then a new connection: the barometer starts again at zero.
+        let (trip, truth) = drive(mounts: [Self.mount(yaw: 20, pitch: -12, roll: 5)], minutesEach: 10,
+                                  dropout: 170...182)
+        let result = MountCalibration.compute(trip)
+        let grade = values(result, PhoneSignals.grade)
+        let resume = t0.addingTimeInterval(182)
+        let near = grade.keys.filter { abs($0.timeIntervalSince(resume)) < 30 }
+        for d in near { XCTAssertEqual(grade[d]!, truth.grade[d]!, accuracy: 1.5, "grade at \(d.timeIntervalSince(t0)) s") }
+        XCTAssertGreaterThan(grade.count, 200)
     }
 
     func testPhoneMovedInItsMountStartsANewStretch() {

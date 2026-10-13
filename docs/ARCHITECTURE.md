@@ -111,11 +111,16 @@ Recording, on by default). Core Motion's device motion is read at 50 Hz and redu
 | `phone_rotation_x/y/z` | mean rotation rate (°/s) |
 | `phone_jolt_peak` | largest acceleration along gravity in the half second (m/s²): bumps and potholes |
 | `phone_vibration_rms` | RMS of the acceleration along gravity (m/s²): how rough the road is |
-| `phone_pressure`, `phone_rel_altitude`, `phone_altitude` | barometer: pressure (kPa), altitude change since recording started and, where the device supports it, absolute altitude (m) |
+| `phone_pressure`, `phone_rel_altitude`, `phone_altitude` | barometer: pressure (kPa), altitude change since the connection started (a resumed trip starts again at zero) and, where the device supports it, absolute altitude (m) |
+
+Core Motion reports gravity minus the device's acceleration (lying face up reads −1 g on
+z), so its `userAcceleration` points opposite to the way the device speeds up;
+`MotionRecorder` negates it, and `phone_accel_*` are + along the axis the device speeds up in.
 
 A mean alone would smooth a bump away, so the peak is kept; a jolt of 4 m/s² (0.4 g) or
 more is also written to the trip's events as `bump` with its peak and the road speed, at
-most one every 2 s. A mount that bounces a little only shakes the acceleration: Core
+most one every 2 s, and only while the car is rolling (handling the device at a stop or
+after the ignition goes off jolts it too). A mount that bounces a little only shakes the acceleration: Core
 Motion's gravity comes from sensor fusion with the gyroscope, not from the raw accelerometer.
 
 At trip end `MountCalibration` turns these into the car's frame and writes
@@ -130,6 +135,10 @@ At trip end `MountCalibration` turns these into the car's frame and writes
 - **Pitch zero** comes from the barometer: the stretch's pitch is offset so its average
   matches the average road grade. Without a barometer, pitch is relative to the stretch's
   average. Roll is always relative (a road's crown leans the car a little all the time).
+- **Tilt check**: pitch should rise and fall with the barometer's grade. Where there's
+  enough hill to tell, the correlation is reported (`pitch follows barometer grade (r …)`)
+  and, if it's clearly negative, pitch and roll are turned round. Acceleration needs no
+  check: its axis is defined by the speed changes themselves.
 
 | Signal | Sign |
 |---|---|
@@ -138,7 +147,7 @@ At trip end `MountCalibration` turns these into the car's frame and writes
 | `vehicle_accel_long` (m/s²) | speeding up + |
 | `vehicle_accel_lat` (m/s²) | toward the right (turning right) + |
 | `vehicle_yaw_rate` (°/s) | turning right + |
-| `road_grade` (%) | uphill in the direction of travel +; barometric altitude change over 80 m of travel, above 15 km/h |
+| `road_grade` (%) | uphill in the direction of travel +; barometric altitude change over 80 m of travel, above 15 km/h, never across a gap of over 5 s in speed or altitude or a resumed connection |
 
 The summary of how the mount was found goes to `meta.json` (`motionCalibration`). A trip
 resumed within the merge window is recalibrated from all its readings when it ends again.

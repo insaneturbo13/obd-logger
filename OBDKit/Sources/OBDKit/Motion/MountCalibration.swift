@@ -11,6 +11,10 @@ import Foundation
 /// - Pitch zero comes from the barometer's road grade averaged over the same stretch. Without
 ///   a barometer, pitch is relative to the stretch's average, and so is roll always (a road's
 ///   crown leans the car a little all the time).
+/// - Pitch is also checked against the barometer's grade: they should rise and fall together.
+///   Forward comes from accelerations, so if those ever arrived with the opposite sign, pitch
+///   and roll would be backwards; the check turns them round. Acceleration needs no check,
+///   since its axis is defined by the speed changes themselves.
 ///
 /// A phone moved in its mount (or picked up) starts a new stretch, each calibrated on its own;
 /// stretches shorter than `minimumStretch` are left out.
@@ -23,6 +27,11 @@ public enum MountCalibration {
         public var forwardMatch: Double?
         /// Degrees added to put pitch on the barometer's grade; nil without a barometer.
         public var pitchOffset: Double?
+        /// Correlation of pitch with the barometer's grade (near 1 when the tilt is right); nil
+        /// without a barometer or without enough hill to tell.
+        public var gradeMatch: Double?
+        /// Pitch and roll came out opposite to the barometer's grade and were turned round.
+        public var tiltFlipped = false
     }
 
     public struct Result: Sendable {
@@ -71,7 +80,8 @@ public enum MountCalibration {
         let speed = Series(obdSpeed.count >= 10 ? obdSpeed : trip.series[GPSSignals.speed] ?? [])
         let altitudeValues = trip.series[PhoneSignals.relativeAltitude].flatMap { $0.count >= 10 ? $0 : nil }
             ?? trip.series[PhoneSignals.altitude] ?? []
-        let gradeSamples = grade(altitude: Series(altitudeValues), speed: speed)
+        let gradeSamples = grade(altitude: Series(altitudeValues), speed: speed,
+                                 breaks: trip.meta.segments.map { $0.start.timeIntervalSince1970 })
         let grade = Series(gradeSamples.map { TimedValue($0.time, $0.value) })
 
         var samples = gradeSamples
@@ -99,6 +109,8 @@ public enum MountCalibration {
             text += ", forward found (match \(String(format: "%.2f", m)))"
             if let o = s.pitchOffset { text += ", pitch zero from barometer (\(String(format: "%+.1f", o))°)" }
             else { text += ", pitch relative to this stretch's average" }
+            if let r = s.gradeMatch { text += ", pitch follows barometer grade (r \(String(format: "%.2f", r)))" }
+            if s.tiltFlipped { text += ", tilt sign turned round to match the barometer" }
         } else {
             text += ", forward not found (too few clear speed changes): yaw rate only"
         }
@@ -194,20 +206,33 @@ public enum MountCalibration {
         guard let forward, let right = down.cross(forward).normalized else { return (out, stretch) }
 
         func degrees(_ x: Double) -> Double { asin(Swift.min(1, Swift.max(-1, x))) * 180 / .pi }
-        let rawPitch = frames.map { f in degrees(-(f.gravity.normalized ?? down).dot(forward)) }
-        var offsets: [Double] = []
+        var rawPitch = frames.map { f in degrees(-(f.gravity.normalized ?? down).dot(forward)) }
+        // Frames with a barometric grade: (frame index, grade as an angle in degrees).
+        var graded: [(index: Int, angle: Double)] = []
         for (i, f) in frames.enumerated() {
             let t = f.t.timeIntervalSince1970
             guard let v = speed.at(t), v >= 15, let g = grade.at(t) else { continue }
-            offsets.append(atan(g / 100) * 180 / .pi - rawPitch[i])
+            graded.append((i, atan(g / 100) * 180 / .pi))
         }
+        // Pitch should rise with the grade; with enough hill to tell, turn it round if it falls.
+        var tiltRight = right
+        if graded.count >= 120, let r = correlation(graded.map { rawPitch[$0.index] }, graded.map { $0.angle }) {
+            stretch.gradeMatch = r
+            if r <= -0.5 {
+                rawPitch = rawPitch.map { -$0 }
+                tiltRight = right * -1
+                stretch.tiltFlipped = true
+                stretch.gradeMatch = -r
+            }
+        }
+        let offsets = graded.map { $0.angle - rawPitch[$0.index] }
         let offset = offsets.count >= 30 ? offsets.reduce(0, +) / Double(offsets.count) : 0
         if offsets.count >= 30 { stretch.pitchOffset = offset }
 
         for (i, f) in frames.enumerated() {
             let g = f.gravity.normalized ?? down
             out.append(Sample(PhoneSignals.pitch, rawPitch[i] + offset, f.t))
-            out.append(Sample(PhoneSignals.roll, degrees(g.dot(right)), f.t))
+            out.append(Sample(PhoneSignals.roll, degrees(g.dot(tiltRight)), f.t))
             out.append(Sample(PhoneSignals.longitudinal, f.accel.dot(forward), f.t))
             out.append(Sample(PhoneSignals.lateral, f.accel.dot(right), f.t))
         }
@@ -215,16 +240,32 @@ public enum MountCalibration {
     }
 
     /// Road grade (%) from barometric altitude over `gradeSpan` meters of travel, at each
-    /// altitude reading taken above 15 km/h.
-    static func grade(altitude: Series, speed: Series) -> [Sample] {
+    /// altitude reading taken above 15 km/h. A window never spans a gap of more than 5 s in the
+    /// speed or altitude readings, or one of `breaks` (the starts of the trip's connections: a
+    /// resumed trip restarts the barometer's relative altitude at zero).
+    static func grade(altitude: Series, speed: Series, breaks: [Double] = []) -> [Sample] {
         guard altitude.count >= 10, speed.count >= 10 else { return [] }
-        // Distance traveled at each speed reading (no distance across gaps over 5 s).
-        var distance = [0.0]
+        // Distance traveled at each speed reading (no distance across gaps over 5 s), and which
+        // unbroken run of readings each one belongs to.
+        var distance = [0.0], speedRun = [0]
         distance.reserveCapacity(speed.count)
+        speedRun.reserveCapacity(speed.count)
         for i in 1..<speed.count {
             let dt = speed.t[i] - speed.t[i - 1]
-            let step = dt > 0 && dt <= 5 ? (speed.v[i] + speed.v[i - 1]) / 2 / 3.6 * dt : 0
-            distance.append(distance[i - 1] + step)
+            let joined = dt > 0 && dt <= 5
+            distance.append(distance[i - 1] + (joined ? (speed.v[i] + speed.v[i - 1]) / 2 / 3.6 * dt : 0))
+            speedRun.append(speedRun[i - 1] + (joined ? 0 : 1))
+        }
+        var altitudeRun = [0]
+        altitudeRun.reserveCapacity(altitude.count)
+        for i in 1..<altitude.count {
+            let dt = altitude.t[i] - altitude.t[i - 1]
+            altitudeRun.append(altitudeRun[i - 1] + (dt > 0 && dt <= 5 ? 0 : 1))
+        }
+        func unbroken(_ a: Double, _ b: Double) -> Bool {
+            speed.run(speedRun, at: a) == speed.run(speedRun, at: b)
+                && altitude.run(altitudeRun, at: a) == altitude.run(altitudeRun, at: b)
+                && breaks.filter({ $0 <= a }).count == breaks.filter({ $0 <= b }).count
         }
         let traveled = Series(t: speed.t, v: distance)
         let half = gradeSpan / 2
@@ -233,11 +274,25 @@ public enum MountCalibration {
             let t = altitude.t[i]
             guard let v = speed.at(t), v >= 15, let s = traveled.at(t),
                   let t1 = traveled.time(reaching: s - half), let t2 = traveled.time(reaching: s + half),
-                  t2 - t1 <= 30, let a1 = altitude.at(t1), let a2 = altitude.at(t2),
+                  t2 - t1 <= 30, unbroken(t1, t2), let a1 = altitude.at(t1), let a2 = altitude.at(t2),
                   let s1 = traveled.at(t1), let s2 = traveled.at(t2), s2 - s1 > half else { continue }
             out.append(Sample(PhoneSignals.grade, (a2 - a1) / (s2 - s1) * 100, Date(timeIntervalSince1970: t)))
         }
         return out
+    }
+
+    /// Pearson correlation; nil when either side doesn't vary.
+    static func correlation(_ x: [Double], _ y: [Double]) -> Double? {
+        guard x.count == y.count, x.count > 2 else { return nil }
+        let mx = x.reduce(0, +) / Double(x.count), my = y.reduce(0, +) / Double(y.count)
+        var sxy = 0.0, sxx = 0.0, syy = 0.0
+        for (a, b) in zip(x, y) {
+            sxy += (a - mx) * (b - my)
+            sxx += (a - mx) * (a - mx)
+            syy += (b - my) * (b - my)
+        }
+        guard sxx > 0, syy > 0 else { return nil }
+        return sxy / (sxx * syy).squareRoot()
     }
 
     /// A time series as plain arrays (seconds since 1970) with interpolation.
@@ -270,6 +325,16 @@ public enum MountCalibration {
             let a = lo - 1
             guard x - t[a] <= maxGap, t[lo] - x <= maxGap else { return nil }
             return v[a] + (v[lo] - v[a]) * (x - t[a]) / (t[lo] - t[a])
+        }
+
+        /// `runs[i]` for the first reading at or after `x` (the last reading when `x` is past the end).
+        func run(_ runs: [Int], at x: Double) -> Int {
+            var lo = 0, hi = t.count - 1
+            while lo < hi {
+                let mid = (lo + hi) / 2
+                if t[mid] < x { lo = mid + 1 } else { hi = mid }
+            }
+            return runs[lo]
         }
 
         /// First time a non-decreasing series reaches `value` (interpolated).

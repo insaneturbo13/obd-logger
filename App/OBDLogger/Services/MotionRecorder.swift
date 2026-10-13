@@ -44,10 +44,14 @@ final class MotionRecorder {
             motion.deviceMotionUpdateInterval = 1.0 / 50
             motion.startDeviceMotionUpdates(to: queue) { @Sendable [weak self] m, _ in
                 guard let m else { return }
+                // Core Motion reports gravity minus the device's acceleration (a device lying face up
+                // reads -1 g on z), so userAcceleration points opposite to the way the device actually
+                // speeds up. Negated here so + means accelerating along that axis.
+                let a = m.userAcceleration
                 let reading = MotionAverager.Reading(
                     time: Self.date(uptime: m.timestamp),
                     gravity: Vec3(m.gravity.x, m.gravity.y, m.gravity.z),
-                    acceleration: Vec3(m.userAcceleration.x, m.userAcceleration.y, m.userAcceleration.z),
+                    acceleration: Vec3(-a.x, -a.y, -a.z),
                     rotation: Vec3(m.rotationRate.x, m.rotationRate.y, m.rotationRate.z))
                 let out = box.averager.add(reading)
                 guard !out.samples.isEmpty || out.bump != nil else { return }
