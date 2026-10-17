@@ -45,64 +45,33 @@ struct DashboardView: View {
     }
 }
 
-/// Connection, recording and polling health at a glance.
+/// Connection, recording and polling health at a glance. One line when it fits (iPad, landscape);
+/// on a phone the controls get the top line and the polling health drops to a second one.
 struct StatusBar: View {
     @Environment(LoggerEngine.self) private var engine
     @State private var noteText = ""
     @State private var askingNote = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 6) {
-                Image(systemName: engine.link == .polling ? "circle.fill" : "circle.dashed")
-                    .foregroundStyle(engine.link == .polling ? Palette.green : Palette.yellow)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(engine.link.label).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.text)
-                    if let name = engine.adapterName {
-                        Text(engine.isDemo ? "Demo: \(name)" : name).font(.caption2).foregroundStyle(Palette.textTertiary)
-                    }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                connection
+                recording
+                Spacer(minLength: 12)
+                health
+                noteMenu
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 12) {
+                    connection
+                    recording
+                    Spacer(minLength: 0)
+                    noteMenu
                 }
+                if showsHealth { health }
             }
-            if let trip = engine.activeTrip {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Label("REC \(context.date.timeIntervalSince(trip.startedAt).clock)", systemImage: "record.circle")
-                        .font(.subheadline.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(Palette.vermillion)
-                }
-                Button { engine.stopTrip() } label: {
-                    Label("Stop", systemImage: "stop.fill").font(.subheadline.weight(.semibold))
-                }
-                .buttonStyle(.bordered)
-                .tint(Palette.vermillion)
-                .accessibilityHint("Ends and saves this trip")
-            } else if engine.canRecord {
-                Button { engine.recordTrip() } label: {
-                    Label("Record", systemImage: "record.circle").font(.subheadline.weight(.semibold))
-                }
-                .buttonStyle(.bordered)
-                .tint(Palette.vermillion)
-            }
-            Spacer()
-            if engine.link == .polling {
-                Text(String(format: "%.1f req/s · %.0f values/s", engine.stats.requestsPerSecond, engine.stats.valuesPerSecond))
-                    .font(.caption.monospacedDigit()).foregroundStyle(Palette.textTertiary)
-            }
-            if let v = engine.live.latest[AdapterSignals.batteryVoltage]?.value {
-                Label(String(format: "%.1f V", v), systemImage: "minus.plus.batteryblock")
-                    .font(.caption.monospacedDigit()).foregroundStyle(Palette.textSecondary)
-            }
-            if engine.live.latest[GPSSignals.latitude] != nil {
-                Image(systemName: "location.fill").font(.caption).foregroundStyle(Palette.skyBlue)
-                    .accessibilityLabel("GPS recording")
-            }
-            Menu {
-                Button("Coolant top-up") { engine.addNote("coolant top-up") }
-                Button("Note…") { askingNote = true }
-            } label: {
-                Image(systemName: "bookmark").font(.title3)
-            }
-            .disabled(engine.activeTrip == nil)
         }
+        .lineLimit(1)
         .padding(.horizontal)
         .padding(.vertical, 8)
         .background(Palette.surface)
@@ -114,6 +83,76 @@ struct StatusBar: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+    }
+
+    /// The only part allowed to shrink: a long adapter name truncates before the buttons do.
+    private var connection: some View {
+        HStack(spacing: 6) {
+            Image(systemName: engine.link == .polling ? "circle.fill" : "circle.dashed")
+                .foregroundStyle(engine.link == .polling ? Palette.green : Palette.yellow)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(engine.link.label).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.text)
+                if let name = engine.adapterName {
+                    Text(engine.isDemo ? "Demo: \(name)" : name).font(.caption2).foregroundStyle(Palette.textTertiary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var recording: some View {
+        if let trip = engine.activeTrip {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                Label("REC \(context.date.timeIntervalSince(trip.startedAt).clock)", systemImage: "record.circle")
+                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(Palette.vermillion)
+                    .fixedSize()
+            }
+            Button { engine.stopTrip() } label: {
+                Label("Stop", systemImage: "stop.fill").font(.subheadline.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .tint(Palette.vermillion)
+            .fixedSize()
+            .accessibilityHint("Ends and saves this trip")
+        } else if engine.canRecord {
+            Button { engine.recordTrip() } label: {
+                Label("Record", systemImage: "record.circle").font(.subheadline.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .tint(Palette.vermillion)
+            .fixedSize()
+        }
+    }
+
+    private var batteryVoltage: Double? { engine.live.latest[AdapterSignals.batteryVoltage]?.value }
+    private var hasGPS: Bool { engine.live.latest[GPSSignals.latitude] != nil }
+    private var showsHealth: Bool { engine.link == .polling || batteryVoltage != nil || hasGPS }
+
+    private var health: some View {
+        HStack(spacing: 12) {
+            if engine.link == .polling {
+                Text(String(format: "%.1f req/s · %.0f values/s", engine.stats.requestsPerSecond, engine.stats.valuesPerSecond))
+                    .font(.caption.monospacedDigit()).foregroundStyle(Palette.textTertiary)
+            }
+            if let v = batteryVoltage {
+                Label(String(format: "%.1f V", v), systemImage: "minus.plus.batteryblock")
+                    .font(.caption.monospacedDigit()).foregroundStyle(Palette.textSecondary)
+            }
+            if hasGPS {
+                Image(systemName: "location.fill").font(.caption).foregroundStyle(Palette.skyBlue)
+                    .accessibilityLabel("GPS recording")
+            }
+        }
+    }
+
+    private var noteMenu: some View {
+        Menu {
+            Button("Coolant top-up") { engine.addNote("coolant top-up") }
+            Button("Note…") { askingNote = true }
+        } label: {
+            Image(systemName: "bookmark").font(.title3)
+        }
+        .disabled(engine.activeTrip == nil)
     }
 }
 
