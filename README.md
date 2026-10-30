@@ -19,6 +19,11 @@ ELM327-style adapter, built to be a dependable everyday logger:
   Outback 2.5i CVT (engine oil and CVT fluid temperature, turbine speed, lock-up and AWD
   transfer duty, wheel and axle speeds), each entry carrying its verification status and
   evidence.
+- The device's own motion sensors and barometer alongside the car's: half-second tilt,
+  acceleration and rotation, the peak vertical jolt (large bumps are marked as events),
+  and air pressure. At trip end these become the car's pitch, roll, longitudinal and
+  lateral acceleration, yaw rate and road grade, worked out from how the device sits in
+  its mount (it needs a fixed mount; a little bounce is fine).
 - Dark dashboard with warm text and the Wong color-vision-safe palette; coolant Live
   Activity on the lock screen with a configurable alert point.
 - CSV export into any Files-app folder (iCloud Drive, Google Drive, OneDrive), optional

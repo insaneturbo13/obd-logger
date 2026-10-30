@@ -213,16 +213,27 @@ struct TripDetailView: View {
         .task { await load() }
     }
 
+    /// Shows the trip as soon as it's read; the CSV files for sharing follow.
     private func load() async {
         let dir = entry.directory
         let snapshot = settings.data
-        let result = await Task.detached(priority: .userInitiated) { () -> (TripData?, Exporter.Files?) in
-            guard let t = try? TripData.load(dir) else { return (nil, nil) }
-            return (t, try? Exporter.shareFiles(t, settings: snapshot))
+        let loaded = await Task.detached(priority: .userInitiated) { () -> TripData? in
+            guard var t = try? TripData.load(dir) else { return nil }
+            // Readings with impossible times were left out: the saved summary still counts them
+            // (a trip "26 years" long), so save it again from what's left.
+            if t.discardedReadings > 0 {
+                t.meta.summary = t.summarize()
+                try? TripFiles.writeMeta(t.meta, to: dir)
+            }
+            return t
         }.value
-        trip = result.0
-        files = result.1
-        if trip == nil { message = "This trip couldn't be read." }
+        trip = loaded
+        guard let loaded else {
+            message = "This trip couldn't be read."
+            return
+        }
+        if loaded.discardedReadings > 0 { store.refresh() }
+        files = await Task.detached(priority: .utility) { try? Exporter.shareFiles(loaded, settings: snapshot) }.value
     }
 
     private func export() async {
@@ -280,6 +291,10 @@ struct TripDetailView: View {
             if trip.meta.isImported, let notes = trip.meta.notes {
                 Text(notes).font(.caption).foregroundStyle(Palette.textTertiary)
             }
+            if trip.discardedReadings > 0 {
+                Text("\(trip.discardedReadings) readings with impossible times (long before the trip, or after it was saved) were left out.")
+                    .font(.caption).foregroundStyle(Palette.textTertiary)
+            }
         }
     }
 
@@ -301,6 +316,17 @@ struct TripDetailView: View {
         Card(title: "Speed and engine speed") {
             TrendChart(series: series(trip, ["speed", GPSSignals.speed]), unit: p.speed == .mph ? "mph" : "km/h", xDomain: domain)
             TrendChart(series: series(trip, ["rpm"]), unit: "rpm", xDomain: domain, height: 160)
+        }
+        let motion: [(SignalID, String)] = [(PhoneSignals.pitch, "°"), (PhoneSignals.grade, "%"), (PhoneSignals.joltPeak, "m/s²")]
+        if motion.contains(where: { trip.series[$0.0] != nil }) {
+            Card(title: "Tilt, grade and bumps") {
+                ForEach(motion.filter { trip.series[$0.0] != nil }, id: \.0) { item in
+                    TrendChart(series: series(trip, [item.0]), unit: item.1, xDomain: domain, height: 140)
+                }
+                if let note = trip.meta.motionCalibration {
+                    Text(note).font(.caption).foregroundStyle(Palette.textTertiary)
+                }
+            }
         }
     }
 

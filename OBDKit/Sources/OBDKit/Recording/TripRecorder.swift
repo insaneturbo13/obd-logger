@@ -28,6 +28,8 @@ public struct TripMeta: Codable, Sendable, Equatable {
     /// exported or uploaded again; its source already has it.
     public var importedFrom: String?
     public var importedAt: Date?
+    /// How the phone's mount was worked out at the end of the trip (`MountCalibration`).
+    public var motionCalibration: String?
 
     public var isImported: Bool { importedFrom != nil }
 
@@ -57,6 +59,9 @@ public enum TripFiles {
     public static let samples = "samples.csv"
     public static let events = "events.csv"
     public static let trace = "trace.log"
+    /// Vehicle-frame motion worked out from the phone's readings at the end of the trip.
+    /// Same format as samples.csv; rewritten whole each time, so a resumed trip is redone.
+    public static let vehicleMotion = "vehicle-motion.csv"
     public static let samplesHeader = "t_ms,signal,value\n"
     public static let eventsHeader = "t_ms,kind,detail\n"
 
@@ -79,6 +84,15 @@ public enum TripFiles {
 
     public static func writeMeta(_ m: TripMeta, to dir: URL) throws {
         try encoder.encode(m).write(to: dir.appendingPathComponent(meta), options: .atomic)
+    }
+
+    public static func writeVehicleMotion(_ samples: [Sample], to dir: URL) throws {
+        var text = samplesHeader
+        text.reserveCapacity(samples.count * 32)
+        for s in samples {
+            text += "\(Int64((s.time.timeIntervalSince1970 * 1000).rounded())),\(s.signal.rawValue),\(format(s.value))\n"
+        }
+        try Data(text.utf8).write(to: dir.appendingPathComponent(vehicleMotion), options: .atomic)
     }
 
     /// Compact number text: integers without a decimal point, others to 7 decimals, trailing zeros trimmed.

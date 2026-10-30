@@ -16,11 +16,13 @@ public struct SignalID: Hashable, Codable, Sendable, Comparable, ExpressibleBySt
 }
 
 public enum SignalCategory: String, Codable, Sendable, CaseIterable {
-    case engine, temperatures, airFuel, throttle, drivetrain, electrical, emissions, fuel, status, location, derived
+    case engine, temperatures, airFuel, throttle, drivetrain, electrical, emissions, fuel, status, location, motion, derived
 }
 
 public enum SignalSource: String, Codable, Sendable {
     case standard, profile, derived, gps, adapter
+    /// The recording device's own motion sensors and barometer.
+    case phone
     /// A column of an imported file with no counterpart here (kept under its own name).
     case imported
 }

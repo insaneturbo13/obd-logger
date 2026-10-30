@@ -61,6 +61,7 @@ targets:
         NSBluetoothAlwaysUsageDescription: The app connects to your OBD-II Bluetooth adapter to read and record the car's sensors.
         NSLocationWhenInUseUsageDescription: Trips record GPS position and speed alongside the car's sensors, including while the screen is off or another app is in front.
         NSLocationAlwaysAndWhenInUseUsageDescription: Allowing location always lets trips that start while the app is closed record GPS too.
+        NSMotionUsageDescription: Trips record air pressure from the barometer to work out road grade alongside the car's sensors.
         NSLocalNetworkUsageDescription: Uploading trips to an InfluxDB server on your home network.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

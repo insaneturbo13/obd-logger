@@ -13,6 +13,8 @@ struct SettingsData: Codable, Equatable {
     var mergeWindowMinutes = 3.0
     /// Save every adapter command and reply with the trip (for debugging; ~1 MB per 15 min).
     var saveTrace = true
+    /// Record this device's tilt, acceleration, bumps and air pressure with each trip.
+    var recordMotion = true
 
     // Coolant (Fahrenheit, as entered)
     var coolantGuideLowF = 180.0

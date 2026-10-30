@@ -29,7 +29,7 @@ struct SensorsView: View {
             Row(id: item.key, key: item.key, signals: (bySignalKey[item.key] ?? []).sorted { $0.name < $1.name },
                 period: item.period, active: active)
         }
-        let extra = DerivedSignals.infos + GPSSignals.infos + AdapterSignals.infos
+        let extra = DerivedSignals.infos + GPSSignals.infos + PhoneSignals.recorded + AdapterSignals.infos
         out += extra.map { Row(id: $0.id.rawValue, key: nil, signals: [$0], period: nil, active: true) }
         if !search.isEmpty {
             out = out.filter { r in r.signals.contains { $0.name.localizedCaseInsensitiveContains(search) || $0.id.rawValue.contains(search.lowercased()) } }
@@ -73,6 +73,7 @@ struct SensorsView: View {
         case .fuel: return "Fuel"
         case .status: return "Status and counters"
         case .location: return "Location (iPad GPS)"
+        case .motion: return "Motion and air pressure (this device)"
         case .derived: return "Calculated in the app"
         }
     }

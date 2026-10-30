@@ -32,13 +32,24 @@ struct TrendChart: View {
         var out: [Point] = []
         var n = 0
         for s in series {
-            var segment = 0
+            // Break into segments on the readings themselves, so thinning a long trip neither
+            // hides a stall nor breaks a line into dots.
+            var segments: [[(Date, Double)]] = []
             var previous: Date?
-            for (t, v) in downsample(s.points, max: 400) {
-                if let p = previous, t.timeIntervalSince(p) > gap { segment += 1 }
-                previous = t
-                out.append(Point(id: n, series: s.name, segment: "\(s.name)#\(segment)", time: t, value: v))
-                n += 1
+            for p in s.points {
+                if let prev = previous, p.0.timeIntervalSince(prev) <= gap, !segments.isEmpty {
+                    segments[segments.count - 1].append(p)
+                } else {
+                    segments.append([p])
+                }
+                previous = p.0
+            }
+            for (i, seg) in segments.enumerated() {
+                let share = Swift.max(2, 400 * seg.count / Swift.max(1, s.points.count))
+                for (t, v) in thin(seg, limit: share) {
+                    out.append(Point(id: n, series: s.name, segment: "\(s.name)#\(i)", time: t, value: v))
+                    n += 1
+                }
             }
         }
         return out
@@ -76,9 +87,20 @@ struct TrendChart: View {
         }
     }
 
-    private func downsample(_ points: [(Date, Double)], max: Int) -> [(Date, Double)] {
-        guard points.count > max else { return points }
-        let stride = Double(points.count) / Double(max)
-        return (0..<max).map { points[Int(Double($0) * stride)] } + [points[points.count - 1]]
+    /// Thins to about `limit` points by keeping each bucket's lowest and highest reading, in
+    /// time order, so peaks such as bumps survive on a long trip.
+    private func thin(_ points: [(Date, Double)], limit: Int) -> [(Date, Double)] {
+        guard points.count > limit, limit >= 2 else { return points }
+        let buckets = limit / 2
+        let size = Double(points.count) / Double(buckets)
+        var out: [(Date, Double)] = []
+        out.reserveCapacity(limit)
+        for b in 0..<buckets {
+            let lo = Int(Double(b) * size), hi = Swift.min(points.count, Int(Double(b + 1) * size))
+            guard lo < hi, let low = points[lo..<hi].min(by: { $0.1 < $1.1 }),
+                  let high = points[lo..<hi].max(by: { $0.1 < $1.1 }) else { continue }
+            if low.0 == high.0 { out.append(low) } else { out += low.0 < high.0 ? [low, high] : [high, low] }
+        }
+        return out
     }
 }

@@ -20,6 +20,8 @@ public struct TripData: Sendable {
     public var meta: TripMeta
     public var series: [SignalID: [TimedValue]]
     public var events: [TripEvent]
+    /// Readings left out on loading because their timestamps can't be right (see `load`).
+    public var discardedReadings = 0
 
     public var start: Date { series.values.compactMap { $0.first?.time }.min() ?? meta.startedAt }
     public var end: Date { series.values.compactMap { $0.last?.time }.max() ?? meta.endedAt ?? meta.startedAt }
@@ -32,13 +34,27 @@ public struct TripData: Sendable {
 
     public static func load(_ dir: URL) throws -> TripData {
         let meta = try TripFiles.readMeta(dir)
-        let text = (try? String(contentsOf: dir.appendingPathComponent(TripFiles.samples), encoding: .utf8)) ?? ""
         var series: [SignalID: [TimedValue]] = [:]
-        // A line cut short by a crash simply fails to parse and is skipped.
-        for line in text.split(separator: "\n").dropFirst() {
-            let parts = line.split(separator: ",", maxSplits: 2, omittingEmptySubsequences: false)
-            guard parts.count == 3, let ms = Int64(parts[0]), let v = Double(parts[2]) else { continue }
-            series[SignalID(String(parts[1])), default: []].append(TimedValue(Date(timeIntervalSince1970: Double(ms) / 1000), v))
+        // A reading can't come from long before the trip started or from after its file was
+        // last written. Such a timestamp is a sensor clock gone wrong, and keeping it would
+        // stretch the trip (and every export that walks it) by hours.
+        let samplesURL = dir.appendingPathComponent(TripFiles.samples)
+        let written = (try? FileManager.default.attributesOfItem(atPath: samplesURL.path))?[.modificationDate] as? Date
+        let earliest = meta.startedAt.addingTimeInterval(-3600).timeIntervalSince1970 * 1000
+        let latest = (written ?? Date()).addingTimeInterval(300).timeIntervalSince1970 * 1000
+        var discarded = 0
+        for file in [TripFiles.samples, TripFiles.vehicleMotion] {
+            let text = (try? String(contentsOf: dir.appendingPathComponent(file), encoding: .utf8)) ?? ""
+            // A line cut short by a crash simply fails to parse and is skipped.
+            for line in text.split(separator: "\n").dropFirst() {
+                let parts = line.split(separator: ",", maxSplits: 2, omittingEmptySubsequences: false)
+                guard parts.count == 3, let ms = Int64(parts[0]), let v = Double(parts[2]) else { continue }
+                guard Double(ms) >= earliest && Double(ms) <= latest else {
+                    discarded += 1
+                    continue
+                }
+                series[SignalID(String(parts[1])), default: []].append(TimedValue(Date(timeIntervalSince1970: Double(ms) / 1000), v))
+            }
         }
         for k in series.keys { series[k]!.sort { $0.time < $1.time } }
         var events: [TripEvent] = []
@@ -49,7 +65,9 @@ public struct TripData: Sendable {
             events.append(TripEvent(time: Date(timeIntervalSince1970: Double(ms) / 1000), kind: String(parts[1]),
                                     detail: parts[2].trimmingCharacters(in: CharacterSet(charactersIn: "\""))))
         }
-        return TripData(meta: meta, series: series, events: events)
+        var trip = TripData(meta: meta, series: series, events: events)
+        trip.discardedReadings = discarded
+        return trip
     }
 
     public func max(_ id: SignalID) -> Double? { series[id]?.map(\.value).max() }

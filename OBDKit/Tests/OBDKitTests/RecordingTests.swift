@@ -44,6 +44,23 @@ final class RecordingTests: XCTestCase {
         XCTAssertEqual(trip.meta.endedAt, t0.addingTimeInterval(180))
     }
 
+    func testLoadLeavesOutImpossibleTimestamps() throws {
+        let root = try Fixtures.tempDirectory()
+        let t0 = Date().addingTimeInterval(-600)
+        let rec = try TripRecorder.start(root: root, meta: TripMeta(id: "trip", startedAt: t0, appVersion: "test"), traceEnabled: false)
+        rec.record([Sample("speed", 50, t0), Sample("speed", 52, t0.addingTimeInterval(1)),
+                    // A sensor clock gone wrong: days ahead, and days behind.
+                    Sample(PhoneSignals.gravityX, 1, Date().addingTimeInterval(3 * 86400)),
+                    Sample(PhoneSignals.gravityY, 1, t0.addingTimeInterval(-2 * 86400))])
+        rec.finish(at: t0.addingTimeInterval(1))
+        let trip = try TripData.load(rec.directory)
+        XCTAssertEqual(trip.discardedReadings, 2)
+        XCTAssertEqual(trip.series["speed"]?.count, 2)
+        XCTAssertNil(trip.series[PhoneSignals.gravityX])
+        XCTAssertNil(trip.series[PhoneSignals.gravityY])
+        XCTAssertLessThan(trip.end.timeIntervalSince(trip.start), 2)
+    }
+
     func testNumberFormat() {
         XCTAssertEqual(TripFiles.format(700), "700")
         XCTAssertEqual(TripFiles.format(-40), "-40")

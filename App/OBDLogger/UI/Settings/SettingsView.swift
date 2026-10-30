@@ -77,6 +77,7 @@ struct SettingsView: View {
                 Text("Continue a trip after a stop of up to \(Int(settings.data.mergeWindowMinutes)) min")
             }
             Toggle("Save adapter conversation with each trip", isOn: settings.binding(\.saveTrace))
+            Toggle("Record this device's motion and air pressure", isOn: settings.binding(\.recordMotion))
             Picker("Vehicle profile", selection: settings.binding(\.profileID)) {
                 Text("Standard sensors only").tag(String?.none)
                 ForEach(BuiltInProfiles.all, id: \.id) { p in Text(p.name).tag(String?.some(p.id)) }
@@ -84,7 +85,7 @@ struct SettingsView: View {
         } header: {
             Text("Recording")
         } footer: {
-            Text("A trip starts when the car answers and ends 30 s after it stops answering. The adapter conversation helps diagnose polling problems (about 1 MB per 15 minutes). Profile changes apply at the next connection.")
+            Text("A trip starts when the car answers and ends 30 s after it stops answering. The adapter conversation helps diagnose polling problems (about 1 MB per 15 minutes). Motion and air pressure give the car's pitch and roll, road grade and bumps; keep the device in a fixed mount, where a little bounce is fine. Pitch and roll are worked out when the trip ends. Profile changes apply at the next connection.")
         }
     }
 
