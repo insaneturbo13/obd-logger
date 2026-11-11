@@ -6,29 +6,41 @@ name: TestFlight
 #   ASC_KEY_ID             App Store Connect API key ID
 #   ASC_ISSUER_ID          App Store Connect API issuer ID
 #   ASC_KEY_P8_BASE64      the .p8 key file, base64-encoded
-# and this repository variable:
-#   BUNDLE_ID_PREFIX       e.g. com.yourname (the app becomes <prefix>.obdlogger)
+#   BUNDLE_ID_PREFIX       e.g. com.yourname (the app becomes <prefix>.obdlogger). A repository
+#                          variable of that name works too, but GitHub prints variables in the log.
+#
+# This repository is public, so its run logs and artifacts are too, and artifacts aren't masked.
+# No build log is uploaded: the job log gets xcodebuild's errors and result only, with the values
+# above masked and signing identities replaced (tools/redact-build-log.sed).
 
 on:
   workflow_dispatch:
   push:
     tags: ["v*"]
 
+permissions: {}
+
 jobs:
   upload:
     runs-on: macos-latest
     timeout-minutes: 45
-    env:
-      BUNDLE_ID_PREFIX: ${{ vars.BUNDLE_ID_PREFIX }}
-      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Check configuration
+        env:
+          HAS_BUNDLE_ID_PREFIX: ${{ secrets.BUNDLE_ID_PREFIX != '' || vars.BUNDLE_ID_PREFIX != '' }}
+          HAS_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID != '' }}
+          HAS_ASC_KEY_ID: ${{ secrets.ASC_KEY_ID != '' }}
+          HAS_ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID != '' }}
+          HAS_ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 != '' }}
         run: |
-          for v in BUNDLE_ID_PREFIX TEAM_ID KEY_ID ISSUER_ID; do
-            if [ -z "${!v}" ]; then echo "::error::$v is not set (see docs/TESTFLIGHT.md)"; exit 1; fi
+          for v in BUNDLE_ID_PREFIX APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8_BASE64; do
+            has="HAS_$v"
+            if [ "${!has}" != "true" ]; then echo "::error::$v is not set (see docs/TESTFLIGHT.md)"; exit 1; fi
           done
       - name: Select the newest Xcode
         run: |
@@ -40,10 +52,16 @@ jobs:
           brew install xcodegen
           cd App && xcodegen generate
       - name: Install the API key
+        env:
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
         run: |
+          umask 077
           mkdir -p "$RUNNER_TEMP/keys"
-          echo "${{ secrets.ASC_KEY_P8_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/keys/AuthKey_$KEY_ID.p8"
+          printf '%s\n' "$ASC_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/keys/AuthKey_$KEY_ID.p8"
       - name: Validate API key file
+        env:
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
         run: |
           set +x
           KEY_PATH="$RUNNER_TEMP/keys/AuthKey_$KEY_ID.p8"
@@ -63,9 +81,18 @@ jobs:
           fi
           echo "API key consistency check: PASS"
       - name: Archive
+        env:
+          BUNDLE_ID_PREFIX: ${{ secrets.BUNDLE_ID_PREFIX || vars.BUNDLE_ID_PREFIX }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
+          # From here on the log masks the prefix too (it's in the bundle and profile names).
+          echo "::add-mask::$BUNDLE_ID_PREFIX"
           cd App
           set -o pipefail
+          # The full log stays in RUNNER_TEMP, outside the workspace, and goes with the runner.
           xcodebuild -project OBDLogger.xcodeproj -scheme OBDLogger -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/OBDLogger.xcarchive" \
@@ -74,10 +101,16 @@ jobs:
             -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID" \
             BUNDLE_ID_PREFIX="$BUNDLE_ID_PREFIX" DEVELOPMENT_TEAM="$TEAM_ID" \
             CODE_SIGN_IDENTITY=- AD_HOC_CODE_SIGNING_ALLOWED=YES \
-            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
-            archive 2>&1 | tee archive.log | grep -E "error:|ARCHIVE (SUCCEEDED|FAILED)" || true
-          grep -q "ARCHIVE SUCCEEDED" archive.log
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            archive 2>&1 | tee "$RUNNER_TEMP/archive.log" \
+            | grep -E "error:|ARCHIVE (SUCCEEDED|FAILED)" \
+            | sed -E -f "$GITHUB_WORKSPACE/tools/redact-build-log.sed" || true
+          grep -q "ARCHIVE SUCCEEDED" "$RUNNER_TEMP/archive.log"
       - name: Upload to App Store Connect
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -92,20 +125,15 @@ jobs:
           </dict>
           </plist>
           PLIST
+          set -o pipefail
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/OBDLogger.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
             -exportPath "$RUNNER_TEMP/export" \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_$KEY_ID.p8" \
-            -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID"
-      - name: Keep logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: testflight-logs
-          path: App/archive.log
-          if-no-files-found: ignore
+            -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID" \
+            2>&1 | sed -E -f "$GITHUB_WORKSPACE/tools/redact-build-log.sed"
 
   # Hands the new build to the internal TestFlight group once Apple has processed it.
   # Runs on Linux: waiting on macOS would burn minutes at 10x.
@@ -113,17 +141,27 @@ jobs:
     needs: upload
     runs-on: ubuntu-latest
     timeout-minutes: 70
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - run: pip install "pyjwt[crypto]"
       - name: Add the build to the internal testers
         env:
+          BUNDLE_ID_PREFIX: ${{ secrets.BUNDLE_ID_PREFIX || vars.BUNDLE_ID_PREFIX }}
+          BUILD_NUMBER: ${{ github.run_number }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
         run: |
+          echo "::add-mask::$BUNDLE_ID_PREFIX"
+          umask 077
           export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
-          echo "${{ secrets.ASC_KEY_P8_BASE64 }}" | base64 --decode > "$ASC_KEY_PATH"
-          python3 tools/asc_distribute.py "${{ vars.BUNDLE_ID_PREFIX }}.obdlogger" "${{ github.run_number }}"
+          printf '%s\n' "$ASC_KEY_P8_BASE64" | base64 --decode > "$ASC_KEY_PATH"
+          unset ASC_KEY_P8_BASE64
+          python3 tools/asc_distribute.py "$BUNDLE_ID_PREFIX.obdlogger" "$BUILD_NUMBER"

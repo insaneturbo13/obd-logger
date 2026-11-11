@@ -39,12 +39,11 @@ Secrets:
 | `ASC_KEY_ID` | Key ID |
 | `ASC_ISSUER_ID` | Issuer ID |
 | `ASC_KEY_P8_BASE64` | the `.p8` file, base64-encoded (below) |
-
-Variables tab:
-
-| Name | Value |
-|---|---|
 | `BUNDLE_ID_PREFIX` | e.g. `com.yourname` |
+
+`BUNDLE_ID_PREFIX` is a secret so that the run logs mask it: a public repository's logs are
+public, and a prefix like `com.yourname` names you. A repository variable of the same name
+still works, but GitHub prints variables in the log.
 
 Base64 of the key in PowerShell:
 
@@ -78,4 +77,9 @@ Public repositories don't use minutes.
 
 The workflow relies on Xcode's automatic signing with the API key
 (`-allowProvisioningUpdates`). If it reports that no signing certificate was found, check
-that the key has the Admin role. The log is attached to the run as `testflight-logs`.
+that the key has the Admin role. The job log shows xcodebuild's errors, with the secrets
+masked and signing identities replaced (`tools/redact-build-log.sed`). The full build log
+isn't kept: it names the team and the signing identity, and anything attached to a run of a
+public repository can be downloaded by anyone signed in to GitHub. If the errors aren't
+enough, print more of `$RUNNER_TEMP/archive.log` in the job log through the same sed script;
+don't upload it.

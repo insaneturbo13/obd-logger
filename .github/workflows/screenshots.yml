@@ -6,12 +6,18 @@ name: Screenshots
 on:
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   screenshots:
     runs-on: macos-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Select the newest Xcode
         run: |
           XCODE=$(ls -d /Applications/Xcode_*.app | grep -iv beta | sort -V | tail -1)
@@ -54,8 +60,12 @@ jobs:
           WAIT=15 NAME=6-sensors shot -tab 2
           WAIT=12 NAME=7-codes shot -tab 3
           WAIT=8 NAME=8-settings shot -tab 4
-          xcrun simctl spawn "$UDID" log show --last 6m --predicate 'process == "OBDLogger"' --style compact > shots/app.log 2>&1 || true
-      - uses: actions/upload-artifact@v4
+          xcrun simctl spawn "$UDID" log show --last 6m --predicate 'process == "OBDLogger"' --style compact > "$RUNNER_TEMP/app.log" 2>&1 || true
+      # The app's log goes to the job log, not the artifact (public repository; see testflight.yml).
+      - name: Show the end of the app log
+        if: always()
+        run: tail -n 200 "$RUNNER_TEMP/app.log" 2>/dev/null || echo "No app log."
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: screenshots

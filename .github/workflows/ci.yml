@@ -5,6 +5,8 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions: {}
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -14,16 +16,24 @@ jobs:
     name: OBDKit tests (Linux)
     runs-on: ubuntu-latest
     container: swift:6.1
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - run: swift test --package-path OBDKit
 
   ios-build:
     name: iOS app build (simulator, unsigned)
     runs-on: macos-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Select the newest Xcode
         run: |
           XCODE=$(ls -d /Applications/Xcode_*.app | grep -iv beta | sort -V | tail -1)
@@ -41,12 +51,10 @@ jobs:
           set -o pipefail
           xcodebuild -project OBDLogger.xcodeproj -scheme OBDLogger -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build.log | grep -E "error:|warning: .*(OBDLogger|Widget)|BUILD (SUCCEEDED|FAILED)" || true
-          grep -q "BUILD SUCCEEDED" build.log
-      - name: Keep the build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-build-log
-          path: App/build.log
-          if-no-files-found: ignore
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/build.log" | grep -E "error:|warning: .*(OBDLogger|Widget)|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log"
+      # No log artifact (public repository; see testflight.yml). On a failure the end of the log
+      # goes to the job log instead.
+      - name: Show the end of the build log
+        if: failure()
+        run: tail -n 100 "$RUNNER_TEMP/build.log" 2>/dev/null | sed -E -f tools/redact-build-log.sed || true
